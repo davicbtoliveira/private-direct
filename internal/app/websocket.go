@@ -39,9 +39,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		if _, _, err := conn.NextReader(); err != nil {
+		var message wsInboundMessage
+		if err := conn.ReadJSON(&message); err != nil {
 			return
 		}
+		s.handleWebSocketMessage(r, client, message)
 	}
 }
 

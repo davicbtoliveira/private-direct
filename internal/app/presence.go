@@ -66,6 +66,20 @@ func (h *presenceHub) sendTo(userIDs []int64, message any) {
 	}
 }
 
+func (h *presenceHub) sendToUser(userID int64, message any) bool {
+	h.mu.RLock()
+	var targets []*wsClient
+	for client := range h.clients[userID] {
+		targets = append(targets, client)
+	}
+	h.mu.RUnlock()
+
+	for _, target := range targets {
+		target.writeJSON(message)
+	}
+	return len(targets) > 0
+}
+
 func (c *wsClient) writeJSON(message any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"strconv"
@@ -80,7 +81,7 @@ func (s *Server) handleCreateContactRequest(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "cannot_contact_self")
 		return
 	}
-	if s.areContacts(r, user.ID, recipient.ID) {
+	if s.areContacts(r.Context(), user.ID, recipient.ID) {
 		writeError(w, http.StatusConflict, "already_contacts")
 		return
 	}
@@ -289,10 +290,10 @@ func (s *Server) requireAuth(w http.ResponseWriter, r *http.Request) (authUser, 
 	return user, true
 }
 
-func (s *Server) areContacts(r *http.Request, a, b int64) bool {
+func (s *Server) areContacts(ctx context.Context, a, b int64) bool {
 	low, high := sortedPair(a, b)
 	var exists int
-	err := s.db.QueryRowContext(r.Context(),
+	err := s.db.QueryRowContext(ctx,
 		"SELECT 1 FROM contacts WHERE user_low_id = ? AND user_high_id = ?",
 		low,
 		high,
