@@ -28,13 +28,45 @@ func openDB(ctx context.Context, path string) (*sql.DB, error) {
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS schema_migrations (
+	now := time.Now().UTC().Format(time.RFC3339)
+	stmts := []struct {
+		query string
+		args  []any
+	}{
+		{
+			query: `CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
 			applied_at TEXT NOT NULL
 		)`,
-		`INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+		},
+		{
+			query: `CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		)`,
+		},
+		{
+			query: `CREATE TABLE IF NOT EXISTS invites (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			code TEXT NOT NULL UNIQUE,
+			used_by_user_id INTEGER,
+			used_at TEXT,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY (used_by_user_id) REFERENCES users(id)
+		)`,
+		},
+		{
+			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (1, ?)`,
+			args: []any{now},
+		},
+		{
+			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+		 VALUES (2, ?)`,
+			args: []any{now},
+		},
 	}
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -44,13 +76,7 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 	defer tx.Rollback()
 
 	for _, stmt := range stmts {
-		if stmt == stmts[1] {
-			if _, err := tx.ExecContext(ctx, stmt, time.Now().UTC().Format(time.RFC3339)); err != nil {
-				return fmt.Errorf("run migration: %w", err)
-			}
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+		if _, err := tx.ExecContext(ctx, stmt.query, stmt.args...); err != nil {
 			return fmt.Errorf("run migration: %w", err)
 		}
 	}

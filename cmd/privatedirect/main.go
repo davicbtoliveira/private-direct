@@ -14,8 +14,9 @@ import (
 
 func main() {
 	cfg := app.Config{
-		Addr:         envOrDefault("PRIVATE_DIRECT_ADDR", ":8080"),
-		DatabasePath: envOrDefault("PRIVATE_DIRECT_DB", "private-direct.db"),
+		Addr:          envOrDefault("PRIVATE_DIRECT_ADDR", ":8080"),
+		DatabasePath:  envOrDefault("PRIVATE_DIRECT_DB", "private-direct.db"),
+		OperatorToken: os.Getenv("PRIVATE_DIRECT_OPERATOR_TOKEN"),
 	}
 
 	srv, err := app.NewServer(cfg)
