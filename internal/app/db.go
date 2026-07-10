@@ -58,6 +58,17 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS refresh_sessions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			token_hash TEXT NOT NULL UNIQUE,
+			expires_at TEXT NOT NULL,
+			revoked_at TEXT,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)`,
+		},
+		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (1, ?)`,
 			args: []any{now},
@@ -65,6 +76,11 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (2, ?)`,
+			args: []any{now},
+		},
+		{
+			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+		 VALUES (3, ?)`,
 			args: []any{now},
 		},
 	}

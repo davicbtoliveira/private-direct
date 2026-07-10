@@ -13,5 +13,7 @@ go test ./...
 Run locally:
 
 ```sh
-PRIVATE_DIRECT_OPERATOR_TOKEN=change-me go run ./cmd/privatedirect
+PRIVATE_DIRECT_OPERATOR_TOKEN=change-me \
+PRIVATE_DIRECT_JWT_SECRET=change-me-too \
+go run ./cmd/privatedirect
 ```

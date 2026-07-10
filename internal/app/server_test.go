@@ -41,6 +41,7 @@ func newTestServer(t *testing.T) *Server {
 		Addr:          "127.0.0.1:0",
 		DatabasePath:  filepath.Join(t.TempDir(), "private-direct.db"),
 		OperatorToken: "operator-secret",
+		JWTSecret:     "test-jwt-secret",
 	})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
@@ -146,6 +147,83 @@ func TestCreateInviteRequiresOperatorToken(t *testing.T) {
 
 	res := postJSON(t, httpSrv.URL+"/operator/invites", nil, map[string]string{"code": "invite-one"})
 	assertStatus(t, res, http.StatusUnauthorized)
+	res.Body.Close()
+}
+
+func TestSessionLifecycle(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	registerUser(t, httpSrv.URL, "invite-one", "alice", "secret-pass")
+
+	loginRes := postJSON(t, httpSrv.URL+"/login", nil, map[string]string{
+		"username": "alice",
+		"password": "secret-pass",
+	})
+	assertStatus(t, loginRes, http.StatusOK)
+	refresh := findCookie(t, loginRes, refreshCookie)
+	if !refresh.HttpOnly {
+		t.Fatalf("refresh cookie HttpOnly = false, want true")
+	}
+	var loginBody struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+	}
+	decodeResponse(t, loginRes, &loginBody)
+	if loginBody.AccessToken == "" {
+		t.Fatalf("access token is empty")
+	}
+	if loginBody.TokenType != "Bearer" {
+		t.Fatalf("token type = %q, want Bearer", loginBody.TokenType)
+	}
+
+	refreshRes := postJSON(t, httpSrv.URL+"/refresh", map[string]string{
+		"Cookie": refresh.String(),
+	}, map[string]string{})
+	assertStatus(t, refreshRes, http.StatusOK)
+	var refreshBody struct {
+		AccessToken string `json:"access_token"`
+	}
+	decodeResponse(t, refreshRes, &refreshBody)
+	if refreshBody.AccessToken == "" {
+		t.Fatalf("refreshed access token is empty")
+	}
+
+	logoutRes := postJSON(t, httpSrv.URL+"/logout", map[string]string{
+		"Cookie": refresh.String(),
+	}, map[string]string{})
+	assertStatus(t, logoutRes, http.StatusNoContent)
+	logoutRes.Body.Close()
+
+	refreshRes = postJSON(t, httpSrv.URL+"/refresh", map[string]string{
+		"Cookie": refresh.String(),
+	}, map[string]string{})
+	assertStatus(t, refreshRes, http.StatusUnauthorized)
+	refreshRes.Body.Close()
+}
+
+func TestLoginRejectsBadPassword(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	registerUser(t, httpSrv.URL, "invite-one", "alice", "secret-pass")
+
+	res := postJSON(t, httpSrv.URL+"/login", nil, map[string]string{
+		"username": "alice",
+		"password": "wrong",
+	})
+	assertStatus(t, res, http.StatusUnauthorized)
+	res.Body.Close()
+}
+
+func TestRefreshRequiresCookie(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+
+	res := postJSON(t, httpSrv.URL+"/refresh", nil, map[string]string{})
+	assertStatus(t, res, http.StatusUnauthorized)
+	res.Body.Close()
 }
 
 func createInvite(t *testing.T, baseURL, code string) {
@@ -154,6 +232,30 @@ func createInvite(t *testing.T, baseURL, code string) {
 		"X-Operator-Token": "operator-secret",
 	}, map[string]string{"code": code})
 	assertStatus(t, res, http.StatusCreated)
+	res.Body.Close()
+}
+
+func registerUser(t *testing.T, baseURL, inviteCode, username, password string) {
+	t.Helper()
+	createInvite(t, baseURL, inviteCode)
+	res := postJSON(t, baseURL+"/register", nil, map[string]string{
+		"invite_code": inviteCode,
+		"username":    username,
+		"password":    password,
+	})
+	assertStatus(t, res, http.StatusCreated)
+	res.Body.Close()
+}
+
+func findCookie(t *testing.T, res *http.Response, name string) *http.Cookie {
+	t.Helper()
+	for _, cookie := range res.Cookies() {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	t.Fatalf("cookie %q not found", name)
+	return nil
 }
 
 func postJSON(t *testing.T, url string, headers map[string]string, body any) *http.Response {

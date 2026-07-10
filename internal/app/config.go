@@ -6,6 +6,7 @@ type Config struct {
 	Addr          string
 	DatabasePath  string
 	OperatorToken string
+	JWTSecret     string
 }
 
 func (c Config) Validate() error {
@@ -17,6 +18,9 @@ func (c Config) Validate() error {
 	}
 	if c.OperatorToken == "" {
 		return fmt.Errorf("operator token is required")
+	}
+	if c.JWTSecret == "" {
+		return fmt.Errorf("jwt secret is required")
 	}
 	return nil
 }

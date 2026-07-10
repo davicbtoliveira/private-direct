@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 type Server struct {
@@ -52,6 +50,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("POST /operator/invites", s.handleCreateInvite)
 	s.mux.HandleFunc("POST /register", s.handleRegister)
+	s.mux.HandleFunc("POST /login", s.handleLogin)
+	s.mux.HandleFunc("POST /refresh", s.handleRefresh)
+	s.mux.HandleFunc("POST /logout", s.handleLogout)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +137,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	passwordHash, err := hashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "password_hash_failed")
 		return
