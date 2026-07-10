@@ -11,9 +11,10 @@ import (
 )
 
 type Server struct {
-	cfg Config
-	db  *sql.DB
-	mux *http.ServeMux
+	cfg      Config
+	db       *sql.DB
+	mux      *http.ServeMux
+	presence *presenceHub
 }
 
 func NewServer(cfg Config) (*Server, error) {
@@ -27,9 +28,10 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		cfg: cfg,
-		db:  db,
-		mux: http.NewServeMux(),
+		cfg:      cfg,
+		db:       db,
+		mux:      http.NewServeMux(),
+		presence: newPresenceHub(),
 	}
 	s.routes()
 	return s, nil
@@ -59,6 +61,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /contacts/requests/{id}/accept", s.handleAcceptContactRequest)
 	s.mux.HandleFunc("POST /contacts/requests/{id}/reject", s.handleRejectContactRequest)
 	s.mux.HandleFunc("GET /contacts", s.handleListContacts)
+	s.mux.HandleFunc("GET /ws", s.handleWebSocket)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

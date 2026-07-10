@@ -191,8 +191,11 @@ func (s *Server) authenticate(r *http.Request) (authUser, bool) {
 	if !strings.HasPrefix(header, "Bearer ") {
 		return authUser{}, false
 	}
+	return s.authenticateToken(strings.TrimPrefix(header, "Bearer "))
+}
 
-	token, err := jwt.Parse(strings.TrimPrefix(header, "Bearer "), func(token *jwt.Token) (any, error) {
+func (s *Server) authenticateToken(raw string) (authUser, bool) {
+	token, err := jwt.Parse(raw, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
