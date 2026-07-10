@@ -61,6 +61,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /contacts/requests/{id}/accept", s.handleAcceptContactRequest)
 	s.mux.HandleFunc("POST /contacts/requests/{id}/reject", s.handleRejectContactRequest)
 	s.mux.HandleFunc("GET /contacts", s.handleListContacts)
+	s.mux.HandleFunc("GET /ice-servers", s.handleICEServers)
 	s.mux.HandleFunc("GET /ws", s.handleWebSocket)
 }
 

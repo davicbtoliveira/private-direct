@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,14 @@ func main() {
 		DatabasePath:  envOrDefault("PRIVATE_DIRECT_DB", "private-direct.db"),
 		OperatorToken: os.Getenv("PRIVATE_DIRECT_OPERATOR_TOKEN"),
 		JWTSecret:     os.Getenv("PRIVATE_DIRECT_JWT_SECRET"),
+		STUNServers:   splitCSV(os.Getenv("PRIVATE_DIRECT_STUN_URLS")),
+		TURNServers: []app.ICEServer{
+			{
+				URLs:       splitCSV(os.Getenv("PRIVATE_DIRECT_TURN_URLS")),
+				Username:   os.Getenv("PRIVATE_DIRECT_TURN_USERNAME"),
+				Credential: os.Getenv("PRIVATE_DIRECT_TURN_CREDENTIAL"),
+			},
+		},
 	}
 
 	srv, err := app.NewServer(cfg)
@@ -62,4 +71,18 @@ func envOrDefault(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func splitCSV(value string) []string {
+	if value == "" {
+		return nil
+	}
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }

@@ -37,12 +37,19 @@ func TestHealth(t *testing.T) {
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 
-	srv, err := NewServer(Config{
+	return newTestServerWithConfig(t, Config{
 		Addr:          "127.0.0.1:0",
 		DatabasePath:  filepath.Join(t.TempDir(), "private-direct.db"),
 		OperatorToken: "operator-secret",
 		JWTSecret:     "test-jwt-secret",
+		STUNServers:   []string{"stun:test.example"},
 	})
+}
+
+func newTestServerWithConfig(t *testing.T, cfg Config) *Server {
+	t.Helper()
+
+	srv, err := NewServer(cfg)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
