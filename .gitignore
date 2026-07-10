@@ -1,0 +1,6 @@
+/private-direct.db
+/private-direct.db-*
+*.db
+*.db-*
+/privatedirect
+/dist/

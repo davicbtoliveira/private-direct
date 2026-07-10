@@ -1,0 +1,7 @@
+node_modules
+dist/assets
+dist/*.js
+dist/*.css
+dist/*.map
+dist/vite.svg
+dist/favicon.ico

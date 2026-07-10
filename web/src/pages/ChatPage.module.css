@@ -1,0 +1,110 @@
+.workspace {
+  height: 100%;
+  display: grid;
+  grid-template-columns: var(--rail-width) 1fr;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background-color: var(--panel);
+  min-height: 0;
+}
+
+.railHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.railBrand {
+  font-family: var(--font-brand);
+  font-weight: 700;
+  color: var(--amber);
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 0.35rem;
+  border-radius: var(--radius-sm);
+}
+
+.iconBtn:hover {
+  color: var(--amber);
+}
+
+.contactList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  min-height: 0;
+}
+
+.empty {
+  margin: 0;
+  padding: 1rem 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.conversation {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.conversationHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.handle {
+  font-family: var(--font-mono);
+}
+
+.conversationBody {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  color: var(--text-muted);
+}
+
+.back {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 0.25rem;
+}
+
+@media (max-width: 720px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .conversation {
+    display: none;
+  }
+  .workspace.showConversation .rail {
+    display: none;
+  }
+  .workspace.showConversation .conversation {
+    display: flex;
+  }
+  .back {
+    display: inline-flex;
+  }
+}

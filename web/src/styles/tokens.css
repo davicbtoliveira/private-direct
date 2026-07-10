@@ -1,0 +1,19 @@
+:root {
+  --carbon: #10120f;
+  --panel: #191d18;
+  --text: #ecefe7;
+  --text-muted: #9aa39a;
+  --amber: #f2b84b;
+  --online: #48b9a7;
+  --fault: #ef6a5b;
+  --border: rgba(236, 239, 231, 0.12);
+  --border-strong: rgba(236, 239, 231, 0.24);
+
+  --font-brand: "Chivo", system-ui, sans-serif;
+  --font-ui: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius: 6px;
+  --radius-sm: 4px;
+  --rail-width: 280px;
+}

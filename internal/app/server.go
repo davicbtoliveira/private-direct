@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/davicbtoliveira/private-direct/web"
 )
 
 type Server struct {
@@ -15,6 +18,7 @@ type Server struct {
 	db       *sql.DB
 	mux      *http.ServeMux
 	presence *presenceHub
+	dist     fs.FS
 }
 
 func NewServer(cfg Config) (*Server, error) {
@@ -33,12 +37,22 @@ func NewServer(cfg Config) (*Server, error) {
 		mux:      http.NewServeMux(),
 		presence: newPresenceHub(),
 	}
+	s.dist, err = fs.Sub(web.Dist, "dist")
+	if err != nil {
+		return nil, fmt.Errorf("embed spa: %w", err)
+	}
 	s.routes()
 	return s, nil
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" || r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			s.mux.ServeHTTP(w, r)
+			return
+		}
+		s.serveSPA(w, r)
+	})
 }
 
 func (s *Server) Close() error {
