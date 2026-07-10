@@ -69,6 +69,30 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS contact_requests (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			requester_id INTEGER NOT NULL,
+			recipient_id INTEGER NOT NULL,
+			status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'rejected')),
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE (requester_id, recipient_id),
+			FOREIGN KEY (requester_id) REFERENCES users(id),
+			FOREIGN KEY (recipient_id) REFERENCES users(id)
+		)`,
+		},
+		{
+			query: `CREATE TABLE IF NOT EXISTS contacts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_low_id INTEGER NOT NULL,
+			user_high_id INTEGER NOT NULL,
+			created_at TEXT NOT NULL,
+			UNIQUE (user_low_id, user_high_id),
+			FOREIGN KEY (user_low_id) REFERENCES users(id),
+			FOREIGN KEY (user_high_id) REFERENCES users(id)
+		)`,
+		},
+		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (1, ?)`,
 			args: []any{now},
@@ -81,6 +105,11 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (3, ?)`,
+			args: []any{now},
+		},
+		{
+			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+		 VALUES (4, ?)`,
 			args: []any{now},
 		},
 	}

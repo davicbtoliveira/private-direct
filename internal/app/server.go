@@ -53,6 +53,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /login", s.handleLogin)
 	s.mux.HandleFunc("POST /refresh", s.handleRefresh)
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
+	s.mux.HandleFunc("GET /users/lookup", s.handleLookupUser)
+	s.mux.HandleFunc("POST /contacts/requests", s.handleCreateContactRequest)
+	s.mux.HandleFunc("GET /contacts/requests/incoming", s.handleIncomingContactRequests)
+	s.mux.HandleFunc("POST /contacts/requests/{id}/accept", s.handleAcceptContactRequest)
+	s.mux.HandleFunc("POST /contacts/requests/{id}/reject", s.handleRejectContactRequest)
+	s.mux.HandleFunc("GET /contacts", s.handleListContacts)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

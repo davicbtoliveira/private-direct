@@ -23,8 +23,8 @@ const (
 )
 
 type authUser struct {
-	ID       int64
-	Username string
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
