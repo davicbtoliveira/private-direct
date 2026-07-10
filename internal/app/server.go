@@ -50,19 +50,19 @@ func (s *Server) Close() error {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.handleHealth)
-	s.mux.HandleFunc("POST /operator/invites", s.handleCreateInvite)
-	s.mux.HandleFunc("POST /register", s.handleRegister)
-	s.mux.HandleFunc("POST /login", s.handleLogin)
-	s.mux.HandleFunc("POST /refresh", s.handleRefresh)
-	s.mux.HandleFunc("POST /logout", s.handleLogout)
-	s.mux.HandleFunc("GET /users/lookup", s.handleLookupUser)
-	s.mux.HandleFunc("POST /contacts/requests", s.handleCreateContactRequest)
-	s.mux.HandleFunc("GET /contacts/requests/incoming", s.handleIncomingContactRequests)
-	s.mux.HandleFunc("POST /contacts/requests/{id}/accept", s.handleAcceptContactRequest)
-	s.mux.HandleFunc("POST /contacts/requests/{id}/reject", s.handleRejectContactRequest)
-	s.mux.HandleFunc("GET /contacts", s.handleListContacts)
-	s.mux.HandleFunc("GET /ice-servers", s.handleICEServers)
-	s.mux.HandleFunc("GET /ws", s.handleWebSocket)
+	s.mux.HandleFunc("POST /api/operator/invites", s.handleCreateInvite)
+	s.mux.HandleFunc("POST /api/register", s.handleRegister)
+	s.mux.HandleFunc("POST /api/login", s.handleLogin)
+	s.mux.HandleFunc("POST /api/refresh", s.handleRefresh)
+	s.mux.HandleFunc("POST /api/logout", s.handleLogout)
+	s.mux.HandleFunc("GET /api/users/lookup", s.handleLookupUser)
+	s.mux.HandleFunc("POST /api/contacts/requests", s.handleCreateContactRequest)
+	s.mux.HandleFunc("GET /api/contacts/requests/incoming", s.handleIncomingContactRequests)
+	s.mux.HandleFunc("POST /api/contacts/requests/{id}/accept", s.handleAcceptContactRequest)
+	s.mux.HandleFunc("POST /api/contacts/requests/{id}/reject", s.handleRejectContactRequest)
+	s.mux.HandleFunc("GET /api/contacts", s.handleListContacts)
+	s.mux.HandleFunc("GET /api/ice-servers", s.handleICEServers)
+	s.mux.HandleFunc("GET /api/ws", s.handleWebSocket)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +133,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inviteCode := strings.TrimSpace(req.InviteCode)
-	username := strings.TrimSpace(req.Username)
+	username := normalizeUsername(req.Username)
 	if inviteCode == "" {
 		writeError(w, http.StatusBadRequest, "invite_code_required")
 		return
@@ -142,8 +142,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "username_required")
 		return
 	}
+	if !validUsername(username) {
+		writeError(w, http.StatusBadRequest, "invalid_username")
+		return
+	}
 	if req.Password == "" {
 		writeError(w, http.StatusBadRequest, "password_required")
+		return
+	}
+	if !validPassword(req.Password) {
+		writeError(w, http.StatusBadRequest, "invalid_password")
 		return
 	}
 

@@ -15,10 +15,10 @@ func TestWebRTCSignalingForwarding(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-pass")
-	registerUser(t, httpSrv.URL, "invite-bob", "bob", "secret-pass")
-	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-pass")
-	bobToken := loginUser(t, httpSrv.URL, "bob", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "invite-bob", "bob", "secret-password")
+	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	bobToken := loginUser(t, httpSrv.URL, "bob", "secret-password")
 	bobID := lookupUserID(t, httpSrv.URL, aliceToken, "bob")
 	aliceID := lookupUserID(t, httpSrv.URL, bobToken, "alice")
 	createAcceptedContact(t, httpSrv.URL, aliceToken, bobToken, "bob")
@@ -76,10 +76,10 @@ func TestWebRTCSignalingRejectsNonContact(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-pass")
-	registerUser(t, httpSrv.URL, "invite-charlie", "charlie", "secret-pass")
-	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-pass")
-	charlieToken := loginUser(t, httpSrv.URL, "charlie", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "invite-charlie", "charlie", "secret-password")
+	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	charlieToken := loginUser(t, httpSrv.URL, "charlie", "secret-password")
 	charlieID := lookupUserID(t, httpSrv.URL, aliceToken, "charlie")
 
 	aliceWS := dialWS(t, httpSrv.URL, aliceToken)
@@ -105,10 +105,10 @@ func TestWebRTCSignalingRejectsOfflineContact(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-pass")
-	registerUser(t, httpSrv.URL, "invite-bob", "bob", "secret-pass")
-	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-pass")
-	bobToken := loginUser(t, httpSrv.URL, "bob", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "invite-bob", "bob", "secret-password")
+	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	bobToken := loginUser(t, httpSrv.URL, "bob", "secret-password")
 	bobID := lookupUserID(t, httpSrv.URL, aliceToken, "bob")
 	createAcceptedContact(t, httpSrv.URL, aliceToken, bobToken, "bob")
 
@@ -132,10 +132,10 @@ func TestWebSocketRejectsServerRelayedChat(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-pass")
-	registerUser(t, httpSrv.URL, "invite-bob", "bob", "secret-pass")
-	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-pass")
-	bobToken := loginUser(t, httpSrv.URL, "bob", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "invite-bob", "bob", "secret-password")
+	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	bobToken := loginUser(t, httpSrv.URL, "bob", "secret-password")
 	bobID := lookupUserID(t, httpSrv.URL, aliceToken, "bob")
 	createAcceptedContact(t, httpSrv.URL, aliceToken, bobToken, "bob")
 
@@ -159,7 +159,7 @@ func TestWebSocketRejectsServerRelayedChat(t *testing.T) {
 
 func lookupUserID(t *testing.T, baseURL, token, username string) int64 {
 	t.Helper()
-	res := getJSON(t, baseURL+"/users/lookup?username="+url.QueryEscape(username), bearerHeaders(token))
+	res := getJSON(t, baseURL+"/api/users/lookup?username="+url.QueryEscape(username), bearerHeaders(token))
 	assertStatus(t, res, 200)
 	var user authUser
 	decodeResponse(t, res, &user)

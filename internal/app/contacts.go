@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -16,15 +15,23 @@ type contactRequestResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type contactsChangedEvent struct {
+	Type string `json:"type"`
+}
+
 func (s *Server) handleLookupUser(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.requireAuth(w, r)
 	if !ok {
 		return
 	}
 
-	username := strings.TrimSpace(r.URL.Query().Get("username"))
+	username := normalizeUsername(r.URL.Query().Get("username"))
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username_required")
+		return
+	}
+	if !validUsername(username) {
+		writeError(w, http.StatusBadRequest, "invalid_username")
 		return
 	}
 
@@ -58,9 +65,13 @@ func (s *Server) handleCreateContactRequest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	username := strings.TrimSpace(req.Username)
+	username := normalizeUsername(req.Username)
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username_required")
+		return
+	}
+	if !validUsername(username) {
+		writeError(w, http.StatusBadRequest, "invalid_username")
 		return
 	}
 
@@ -121,6 +132,7 @@ func (s *Server) handleCreateContactRequest(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "contact_request_failed")
 		return
 	}
+	s.presence.sendToUser(recipient.ID, contactsChangedEvent{Type: "contacts_changed"})
 
 	writeJSON(w, http.StatusCreated, contactRequestResponse{
 		ID:        id,
@@ -150,7 +162,7 @@ func (s *Server) handleIncomingContactRequests(w http.ResponseWriter, r *http.Re
 	}
 	defer rows.Close()
 
-	var requests []contactRequestResponse
+	requests := make([]contactRequestResponse, 0)
 	for rows.Next() {
 		var request contactRequestResponse
 		if err := rows.Scan(&request.ID, &request.Username, &request.Status, &request.CreatedAt); err != nil {
@@ -193,13 +205,15 @@ func (s *Server) updateContactRequest(w http.ResponseWriter, r *http.Request, st
 	}
 	defer tx.Rollback()
 
-	var requesterID int64
+	var requester authUser
 	err = tx.QueryRowContext(r.Context(),
-		`SELECT requester_id FROM contact_requests
-		 WHERE id = ? AND recipient_id = ? AND status = 'pending'`,
+		`SELECT users.id, users.username
+		 FROM contact_requests
+		 JOIN users ON users.id = contact_requests.requester_id
+		 WHERE contact_requests.id = ? AND recipient_id = ? AND status = 'pending'`,
 		requestID,
 		user.ID,
-	).Scan(&requesterID)
+	).Scan(&requester.ID, &requester.Username)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "request_not_found")
 		return
@@ -221,7 +235,7 @@ func (s *Server) updateContactRequest(w http.ResponseWriter, r *http.Request, st
 	}
 
 	if status == "accepted" {
-		low, high := sortedPair(user.ID, requesterID)
+		low, high := sortedPair(user.ID, requester.ID)
 		if _, err := tx.ExecContext(r.Context(),
 			"INSERT OR IGNORE INTO contacts (user_low_id, user_high_id, created_at) VALUES (?, ?, ?)",
 			low,
@@ -236,6 +250,22 @@ func (s *Server) updateContactRequest(w http.ResponseWriter, r *http.Request, st
 	if err := tx.Commit(); err != nil {
 		writeError(w, http.StatusInternalServerError, "update_request_failed")
 		return
+	}
+
+	changed := contactsChangedEvent{Type: "contacts_changed"}
+	s.presence.sendToUser(requester.ID, changed)
+	s.presence.sendToUser(user.ID, changed)
+	if status == "accepted" {
+		s.presence.sendToUser(requester.ID, presenceEvent{
+			Type:   "presence",
+			User:   user,
+			Online: s.presence.isOnline(user.ID),
+		})
+		s.presence.sendToUser(user.ID, presenceEvent{
+			Type:   "presence",
+			User:   requester,
+			Online: s.presence.isOnline(requester.ID),
+		})
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -265,7 +295,7 @@ func (s *Server) handleListContacts(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var contacts []authUser
+	contacts := make([]authUser, 0)
 	for rows.Next() {
 		var contact authUser
 		if err := rows.Scan(&contact.ID, &contact.Username); err != nil {

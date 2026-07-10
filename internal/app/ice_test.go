@@ -11,10 +11,10 @@ func TestICEServersSTUNOnly(t *testing.T) {
 	srv := newTestServer(t)
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
-	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-pass")
-	token := loginUser(t, httpSrv.URL, "alice", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	token := loginUser(t, httpSrv.URL, "alice", "secret-password")
 
-	res := getJSON(t, httpSrv.URL+"/ice-servers", bearerHeaders(token))
+	res := getJSON(t, httpSrv.URL+"/api/ice-servers", bearerHeaders(token))
 	assertStatus(t, res, http.StatusOK)
 	var body struct {
 		ICEServers []ICEServer `json:"ice_servers"`
@@ -45,10 +45,10 @@ func TestICEServersWithTURN(t *testing.T) {
 	})
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
-	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-pass")
-	token := loginUser(t, httpSrv.URL, "alice", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	token := loginUser(t, httpSrv.URL, "alice", "secret-password")
 
-	res := getJSON(t, httpSrv.URL+"/ice-servers", bearerHeaders(token))
+	res := getJSON(t, httpSrv.URL+"/api/ice-servers", bearerHeaders(token))
 	assertStatus(t, res, http.StatusOK)
 	var body struct {
 		ICEServers []ICEServer `json:"ice_servers"`
@@ -67,7 +67,7 @@ func TestICEServersRequireAuth(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	res := getJSON(t, httpSrv.URL+"/ice-servers", nil)
+	res := getJSON(t, httpSrv.URL+"/api/ice-servers", nil)
 	assertStatus(t, res, http.StatusUnauthorized)
 	res.Body.Close()
 }

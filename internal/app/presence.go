@@ -66,6 +66,12 @@ func (h *presenceHub) sendTo(userIDs []int64, message any) {
 	}
 }
 
+func (h *presenceHub) isOnline(userID int64) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients[userID]) > 0
+}
+
 func (h *presenceHub) sendToUser(userID int64, message any) bool {
 	h.mu.RLock()
 	var targets []*wsClient

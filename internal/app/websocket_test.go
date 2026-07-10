@@ -17,7 +17,7 @@ func TestWebSocketRequiresAccessToken(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	_, res, err := websocket.DefaultDialer.Dial(wsURL(httpSrv.URL)+"/ws", nil)
+	_, res, err := websocket.DefaultDialer.Dial(wsURL(httpSrv.URL)+"/api/ws", nil)
 	if err == nil {
 		t.Fatalf("dial without token succeeded")
 	}
@@ -31,12 +31,12 @@ func TestWebSocketPresenceForAcceptedContacts(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-pass")
-	registerUser(t, httpSrv.URL, "invite-bob", "bob", "secret-pass")
-	registerUser(t, httpSrv.URL, "invite-charlie", "charlie", "secret-pass")
-	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-pass")
-	bobToken := loginUser(t, httpSrv.URL, "bob", "secret-pass")
-	charlieToken := loginUser(t, httpSrv.URL, "charlie", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "invite-bob", "bob", "secret-password")
+	registerUser(t, httpSrv.URL, "invite-charlie", "charlie", "secret-password")
+	aliceToken := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	bobToken := loginUser(t, httpSrv.URL, "bob", "secret-password")
+	charlieToken := loginUser(t, httpSrv.URL, "charlie", "secret-password")
 	createAcceptedContact(t, httpSrv.URL, aliceToken, bobToken, "bob")
 
 	bobWS := dialWS(t, httpSrv.URL, bobToken)
@@ -61,19 +61,19 @@ func TestWebSocketPresenceForAcceptedContacts(t *testing.T) {
 func createAcceptedContact(t *testing.T, baseURL, requesterToken, recipientToken, recipientUsername string) {
 	t.Helper()
 
-	requestRes := postJSON(t, baseURL+"/contacts/requests", bearerHeaders(requesterToken), map[string]string{"username": recipientUsername})
+	requestRes := postJSON(t, baseURL+"/api/contacts/requests", bearerHeaders(requesterToken), map[string]string{"username": recipientUsername})
 	assertStatus(t, requestRes, http.StatusCreated)
 	var request contactRequestResponse
 	decodeResponse(t, requestRes, &request)
 
-	acceptRes := postJSON(t, baseURL+"/contacts/requests/"+url.PathEscape(strconv.FormatInt(request.ID, 10))+"/accept", bearerHeaders(recipientToken), map[string]string{})
+	acceptRes := postJSON(t, baseURL+"/api/contacts/requests/"+url.PathEscape(strconv.FormatInt(request.ID, 10))+"/accept", bearerHeaders(recipientToken), map[string]string{})
 	assertStatus(t, acceptRes, http.StatusNoContent)
 	acceptRes.Body.Close()
 }
 
 func dialWS(t *testing.T, baseURL, token string) *websocket.Conn {
 	t.Helper()
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL(baseURL)+"/ws?access_token="+url.QueryEscape(token), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL(baseURL)+"/api/ws?access_token="+url.QueryEscape(token), nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}

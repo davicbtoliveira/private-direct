@@ -68,10 +68,10 @@ func TestInviteRegistration(t *testing.T) {
 
 	createInvite(t, httpSrv.URL, "invite-one")
 
-	res := postJSON(t, httpSrv.URL+"/register", nil, map[string]string{
+	res := postJSON(t, httpSrv.URL+"/api/register", nil, map[string]string{
 		"invite_code": "invite-one",
 		"username":    "alice",
-		"password":    "secret-pass",
+		"password":    "secret-password",
 	})
 	assertStatus(t, res, http.StatusCreated)
 
@@ -91,7 +91,7 @@ func TestInviteRegistration(t *testing.T) {
 	if err := srv.db.QueryRow("SELECT password_hash FROM users WHERE username = ?", "alice").Scan(&storedHash); err != nil {
 		t.Fatalf("query password hash: %v", err)
 	}
-	if storedHash == "secret-pass" {
+	if storedHash == "secret-password" {
 		t.Fatalf("password stored as plaintext")
 	}
 }
@@ -101,25 +101,25 @@ func TestRegisterRejectsInvalidOrReusedInvite(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	res := postJSON(t, httpSrv.URL+"/register", nil, map[string]string{
+	res := postJSON(t, httpSrv.URL+"/api/register", nil, map[string]string{
 		"invite_code": "missing",
 		"username":    "alice",
-		"password":    "secret-pass",
+		"password":    "secret-password",
 	})
 	assertStatus(t, res, http.StatusBadRequest)
 
 	createInvite(t, httpSrv.URL, "invite-one")
-	res = postJSON(t, httpSrv.URL+"/register", nil, map[string]string{
+	res = postJSON(t, httpSrv.URL+"/api/register", nil, map[string]string{
 		"invite_code": "invite-one",
 		"username":    "alice",
-		"password":    "secret-pass",
+		"password":    "secret-password",
 	})
 	assertStatus(t, res, http.StatusCreated)
 
-	res = postJSON(t, httpSrv.URL+"/register", nil, map[string]string{
+	res = postJSON(t, httpSrv.URL+"/api/register", nil, map[string]string{
 		"invite_code": "invite-one",
 		"username":    "bob",
-		"password":    "secret-pass",
+		"password":    "secret-password",
 	})
 	assertStatus(t, res, http.StatusBadRequest)
 }
@@ -132,17 +132,17 @@ func TestRegisterRejectsDuplicateUsername(t *testing.T) {
 	createInvite(t, httpSrv.URL, "invite-one")
 	createInvite(t, httpSrv.URL, "invite-two")
 
-	res := postJSON(t, httpSrv.URL+"/register", nil, map[string]string{
+	res := postJSON(t, httpSrv.URL+"/api/register", nil, map[string]string{
 		"invite_code": "invite-one",
 		"username":    "alice",
-		"password":    "secret-pass",
+		"password":    "secret-password",
 	})
 	assertStatus(t, res, http.StatusCreated)
 
-	res = postJSON(t, httpSrv.URL+"/register", nil, map[string]string{
+	res = postJSON(t, httpSrv.URL+"/api/register", nil, map[string]string{
 		"invite_code": "invite-two",
 		"username":    "alice",
-		"password":    "other-pass",
+		"password":    "other-password",
 	})
 	assertStatus(t, res, http.StatusConflict)
 }
@@ -152,7 +152,7 @@ func TestCreateInviteRequiresOperatorToken(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	res := postJSON(t, httpSrv.URL+"/operator/invites", nil, map[string]string{"code": "invite-one"})
+	res := postJSON(t, httpSrv.URL+"/api/operator/invites", nil, map[string]string{"code": "invite-one"})
 	assertStatus(t, res, http.StatusUnauthorized)
 	res.Body.Close()
 }
@@ -161,11 +161,11 @@ func TestSessionLifecycle(t *testing.T) {
 	srv := newTestServer(t)
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
-	registerUser(t, httpSrv.URL, "invite-one", "alice", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-one", "alice", "secret-password")
 
-	loginRes := postJSON(t, httpSrv.URL+"/login", nil, map[string]string{
+	loginRes := postJSON(t, httpSrv.URL+"/api/login", nil, map[string]string{
 		"username": "alice",
-		"password": "secret-pass",
+		"password": "secret-password",
 	})
 	assertStatus(t, loginRes, http.StatusOK)
 	refresh := findCookie(t, loginRes, refreshCookie)
@@ -184,7 +184,7 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatalf("token type = %q, want Bearer", loginBody.TokenType)
 	}
 
-	refreshRes := postJSON(t, httpSrv.URL+"/refresh", map[string]string{
+	refreshRes := postJSON(t, httpSrv.URL+"/api/refresh", map[string]string{
 		"Cookie": refresh.String(),
 	}, map[string]string{})
 	assertStatus(t, refreshRes, http.StatusOK)
@@ -196,13 +196,13 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatalf("refreshed access token is empty")
 	}
 
-	logoutRes := postJSON(t, httpSrv.URL+"/logout", map[string]string{
+	logoutRes := postJSON(t, httpSrv.URL+"/api/logout", map[string]string{
 		"Cookie": refresh.String(),
 	}, map[string]string{})
 	assertStatus(t, logoutRes, http.StatusNoContent)
 	logoutRes.Body.Close()
 
-	refreshRes = postJSON(t, httpSrv.URL+"/refresh", map[string]string{
+	refreshRes = postJSON(t, httpSrv.URL+"/api/refresh", map[string]string{
 		"Cookie": refresh.String(),
 	}, map[string]string{})
 	assertStatus(t, refreshRes, http.StatusUnauthorized)
@@ -213,9 +213,9 @@ func TestLoginRejectsBadPassword(t *testing.T) {
 	srv := newTestServer(t)
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
-	registerUser(t, httpSrv.URL, "invite-one", "alice", "secret-pass")
+	registerUser(t, httpSrv.URL, "invite-one", "alice", "secret-password")
 
-	res := postJSON(t, httpSrv.URL+"/login", nil, map[string]string{
+	res := postJSON(t, httpSrv.URL+"/api/login", nil, map[string]string{
 		"username": "alice",
 		"password": "wrong",
 	})
@@ -228,14 +228,14 @@ func TestRefreshRequiresCookie(t *testing.T) {
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 
-	res := postJSON(t, httpSrv.URL+"/refresh", nil, map[string]string{})
+	res := postJSON(t, httpSrv.URL+"/api/refresh", nil, map[string]string{})
 	assertStatus(t, res, http.StatusUnauthorized)
 	res.Body.Close()
 }
 
 func createInvite(t *testing.T, baseURL, code string) {
 	t.Helper()
-	res := postJSON(t, baseURL+"/operator/invites", map[string]string{
+	res := postJSON(t, baseURL+"/api/operator/invites", map[string]string{
 		"X-Operator-Token": "operator-secret",
 	}, map[string]string{"code": code})
 	assertStatus(t, res, http.StatusCreated)
@@ -245,7 +245,7 @@ func createInvite(t *testing.T, baseURL, code string) {
 func registerUser(t *testing.T, baseURL, inviteCode, username, password string) {
 	t.Helper()
 	createInvite(t, baseURL, inviteCode)
-	res := postJSON(t, baseURL+"/register", nil, map[string]string{
+	res := postJSON(t, baseURL+"/api/register", nil, map[string]string{
 		"invite_code": inviteCode,
 		"username":    username,
 		"password":    password,

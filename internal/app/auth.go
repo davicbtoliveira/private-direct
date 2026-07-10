@@ -36,7 +36,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := strings.TrimSpace(req.Username)
+	username := normalizeUsername(req.Username)
+	if !validUsername(username) {
+		writeError(w, http.StatusUnauthorized, "invalid_credentials")
+		return
+	}
 	var user authUser
 	var passwordHash string
 	err := s.db.QueryRowContext(r.Context(),
@@ -88,6 +92,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		"access_token": accessToken,
 		"token_type":   "Bearer",
 		"expires_in":   int(accessTokenTTL.Seconds()),
+		"user":         user,
 	})
 }
 
@@ -146,6 +151,7 @@ func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, user authU
 		"access_token": accessToken,
 		"token_type":   "Bearer",
 		"expires_in":   int(accessTokenTTL.Seconds()),
+		"user":         user,
 	})
 	return nil
 }
