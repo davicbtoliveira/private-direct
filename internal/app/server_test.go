@@ -175,6 +175,7 @@ func TestSessionLifecycle(t *testing.T) {
 	var loginBody struct {
 		AccessToken string `json:"access_token"`
 		TokenType   string `json:"token_type"`
+		User        authUser `json:"user"`
 	}
 	decodeResponse(t, loginRes, &loginBody)
 	if loginBody.AccessToken == "" {
@@ -183,6 +184,9 @@ func TestSessionLifecycle(t *testing.T) {
 	if loginBody.TokenType != "Bearer" {
 		t.Fatalf("token type = %q, want Bearer", loginBody.TokenType)
 	}
+	if loginBody.User.Username != "alice" || loginBody.User.ID == 0 {
+		t.Fatalf("login user = %+v, want alice with id", loginBody.User)
+	}
 
 	refreshRes := postJSON(t, httpSrv.URL+"/api/refresh", map[string]string{
 		"Cookie": refresh.String(),
@@ -190,10 +194,14 @@ func TestSessionLifecycle(t *testing.T) {
 	assertStatus(t, refreshRes, http.StatusOK)
 	var refreshBody struct {
 		AccessToken string `json:"access_token"`
+		User        authUser `json:"user"`
 	}
 	decodeResponse(t, refreshRes, &refreshBody)
 	if refreshBody.AccessToken == "" {
 		t.Fatalf("refreshed access token is empty")
+	}
+	if refreshBody.User.Username != "alice" {
+		t.Fatalf("refresh user = %+v, want alice", refreshBody.User)
 	}
 
 	logoutRes := postJSON(t, httpSrv.URL+"/api/logout", map[string]string{

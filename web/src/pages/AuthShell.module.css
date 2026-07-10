@@ -95,3 +95,19 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.error {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background-color: rgba(239, 106, 91, 0.12);
+  border: 1px solid var(--fault);
+  border-radius: var(--radius-sm);
+  color: var(--fault);
+  font-size: 0.875rem;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
