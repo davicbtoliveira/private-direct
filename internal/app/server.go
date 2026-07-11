@@ -183,16 +183,21 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	var inviteID int64
+	var inviteUsedBy sql.NullInt64
 	err = tx.QueryRowContext(r.Context(),
-		"SELECT id FROM invites WHERE code = ? AND used_by_user_id IS NULL",
+		"SELECT id, used_by_user_id FROM invites WHERE code = ?",
 		inviteCode,
-	).Scan(&inviteID)
+	).Scan(&inviteID, &inviteUsedBy)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusBadRequest, "invalid_invite")
 		return
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "register_failed")
+		return
+	}
+	if inviteUsedBy.Valid {
+		writeError(w, http.StatusBadRequest, "invite_used")
 		return
 	}
 

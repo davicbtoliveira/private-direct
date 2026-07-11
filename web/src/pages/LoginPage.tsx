@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import AuthShell from "./AuthShell";
 import styles from "./AuthShell.module.css";
 import { useSession } from "../session/sessionContext";
@@ -7,7 +7,11 @@ import { useSession } from "../session/sessionContext";
 export default function LoginPage() {
   const { login, state } = useSession();
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const location = useLocation();
+  const recovery = location.state as
+    | { registrationCreated?: boolean; username?: string }
+    | null;
+  const [username, setUsername] = useState(recovery?.username ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -38,6 +42,11 @@ export default function LoginPage() {
       footerLink="Register"
     >
       <form className={styles.form} aria-label="Sign in form" onSubmit={onSubmit}>
+        {recovery?.registrationCreated && (
+          <p className={styles.notice} role="status">
+            Account created. Sign in to continue.
+          </p>
+        )}
         <label className={styles.field}>
           <span className={styles.label}>Username</span>
           <input
