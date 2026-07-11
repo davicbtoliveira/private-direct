@@ -1,0 +1,166 @@
+.empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.searchForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.label {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0.625rem 0.75rem;
+  background-color: var(--carbon);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+}
+
+.input:focus {
+  border-color: var(--amber);
+}
+
+.primaryButton,
+.acceptButton,
+.rejectButton {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+}
+
+.primaryButton {
+  align-self: flex-start;
+  background-color: var(--amber);
+  color: var(--carbon);
+  border: 1px solid var(--amber);
+}
+
+.primaryButton:disabled,
+.acceptButton:disabled,
+.rejectButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lookupResult {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.handle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+
+.status,
+.error {
+  margin: 1rem 0 0;
+  font-size: 0.875rem;
+}
+
+.status {
+  color: var(--text);
+  border-left: 2px solid var(--amber);
+  padding-left: 0.75rem;
+}
+
+.error {
+  color: var(--fault);
+}
+
+.loadError p {
+  margin: 0;
+  color: var(--fault);
+}
+
+.retryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding: 0.4rem 0;
+  background: none;
+  color: var(--text);
+  border: 0;
+}
+
+.requestList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.requestItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.requestItem:first-child {
+  padding-top: 0;
+}
+
+.requestActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.acceptButton,
+.rejectButton {
+  background: none;
+}
+
+.acceptButton {
+  color: var(--text);
+  border: 1px solid var(--amber);
+}
+
+.rejectButton {
+  color: var(--fault);
+  border: 1px solid var(--border-strong);
+}
+
+@media (max-width: 390px) {
+  .lookupResult,
+  .requestItem {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .requestActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}

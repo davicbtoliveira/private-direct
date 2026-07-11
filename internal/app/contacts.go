@@ -92,13 +92,65 @@ func (s *Server) handleCreateContactRequest(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "cannot_contact_self")
 		return
 	}
-	if s.areContacts(r.Context(), user.ID, recipient.ID) {
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "contact_request_failed")
+		return
+	}
+	defer tx.Rollback()
+
+	low, high := sortedPair(user.ID, recipient.ID)
+	var contactExists int
+	err = tx.QueryRowContext(r.Context(),
+		"SELECT 1 FROM contacts WHERE user_low_id = ? AND user_high_id = ?",
+		low,
+		high,
+	).Scan(&contactExists)
+	if err == nil {
 		writeError(w, http.StatusConflict, "already_contacts")
 		return
 	}
+	if err != sql.ErrNoRows {
+		writeError(w, http.StatusInternalServerError, "contact_request_failed")
+		return
+	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.ExecContext(r.Context(),
+	var existing contactRequestResponse
+	var existingRequesterID int64
+	err = tx.QueryRowContext(r.Context(),
+		`SELECT id, requester_id, status, created_at
+		 FROM contact_requests
+		 WHERE (requester_id = ? AND recipient_id = ?)
+		    OR (requester_id = ? AND recipient_id = ?)
+		 ORDER BY CASE WHEN requester_id = ? THEN 0 ELSE 1 END
+		 LIMIT 1`,
+		user.ID,
+		recipient.ID,
+		recipient.ID,
+		user.ID,
+		user.ID,
+	).Scan(&existing.ID, &existingRequesterID, &existing.Status, &existing.CreatedAt)
+	if err == nil {
+		if existingRequesterID == user.ID {
+			existing.Username = recipient.Username
+			writeJSON(w, http.StatusOK, existing)
+			return
+		}
+		if existing.Status == "pending" {
+			writeError(w, http.StatusConflict, "incoming_request_exists")
+			return
+		}
+		writeError(w, http.StatusConflict, "contact_request_unavailable")
+		return
+	}
+	if err != sql.ErrNoRows {
+		writeError(w, http.StatusInternalServerError, "contact_request_failed")
+		return
+	}
+
+	res, err := tx.ExecContext(r.Context(),
 		`INSERT INTO contact_requests (requester_id, recipient_id, status, created_at, updated_at)
 		 VALUES (?, ?, 'pending', ?, ?)`,
 		user.ID,
@@ -107,20 +159,7 @@ func (s *Server) handleCreateContactRequest(w http.ResponseWriter, r *http.Reque
 		now,
 	)
 	if isUniqueViolation(err) {
-		var existing contactRequestResponse
-		err = s.db.QueryRowContext(r.Context(),
-			`SELECT contact_requests.id, users.username, contact_requests.status, contact_requests.created_at
-			 FROM contact_requests
-			 JOIN users ON users.id = contact_requests.recipient_id
-			 WHERE contact_requests.requester_id = ? AND contact_requests.recipient_id = ?`,
-			user.ID,
-			recipient.ID,
-		).Scan(&existing.ID, &existing.Username, &existing.Status, &existing.CreatedAt)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "contact_request_failed")
-			return
-		}
-		writeJSON(w, http.StatusOK, existing)
+		writeError(w, http.StatusConflict, "contact_request_exists")
 		return
 	}
 	if err != nil {
@@ -129,6 +168,10 @@ func (s *Server) handleCreateContactRequest(w http.ResponseWriter, r *http.Reque
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, "contact_request_failed")
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		writeError(w, http.StatusInternalServerError, "contact_request_failed")
 		return
 	}
@@ -241,6 +284,17 @@ func (s *Server) updateContactRequest(w http.ResponseWriter, r *http.Request, st
 			low,
 			high,
 			now,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, "update_request_failed")
+			return
+		}
+		if _, err := tx.ExecContext(r.Context(),
+			`UPDATE contact_requests
+			 SET status = 'accepted', updated_at = ?
+			 WHERE requester_id = ? AND recipient_id = ? AND status = 'pending'`,
+			now,
+			user.ID,
+			requester.ID,
 		); err != nil {
 			writeError(w, http.StatusInternalServerError, "update_request_failed")
 			return

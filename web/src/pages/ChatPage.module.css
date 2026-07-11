@@ -15,26 +15,57 @@
 .railHeader {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 1rem 1.25rem;
+  gap: 0.35rem;
+  min-height: 64px;
+  padding: 0.75rem 0.75rem 0.75rem 1.25rem;
   border-bottom: 1px solid var(--border);
 }
 
 .railBrand {
+  flex: 1;
+  min-width: 0;
   font-family: var(--font-brand);
   font-weight: 700;
   color: var(--amber);
 }
 
+.railActions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
 .iconBtn {
+  position: relative;
+  width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: none;
   border: none;
   color: var(--text);
-  padding: 0.35rem;
+  padding: 0;
   border-radius: var(--radius-sm);
+}
+
+.requestBadge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  background-color: var(--amber);
+  color: var(--carbon);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .iconBtn:hover {
@@ -52,6 +83,55 @@
   margin: 0;
   padding: 1rem 0.75rem;
   color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.listError {
+  padding: 1rem 0.75rem;
+  color: var(--fault);
+  font-size: 0.875rem;
+}
+
+.listError p {
+  margin: 0;
+}
+
+.listError button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding: 0.35rem 0;
+  background: none;
+  color: var(--text);
+  border: 0;
+}
+
+.contactLink {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0.625rem 0.75rem;
+  color: var(--text);
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.contactLink:hover {
+  background-color: rgba(236, 239, 231, 0.04);
+}
+
+.activeContact {
+  background-color: rgba(242, 184, 75, 0.08);
+  border-left-color: var(--amber);
+}
+
+.contactHandle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
   font-size: 0.875rem;
 }
 
@@ -112,5 +192,10 @@
   }
   .back {
     display: inline-flex;
+  }
+
+  .iconBtn {
+    width: 40px;
+    height: 40px;
   }
 }
