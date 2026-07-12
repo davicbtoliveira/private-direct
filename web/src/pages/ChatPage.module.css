@@ -1,7 +1,22 @@
-.workspace {
+.workspaceFrame {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: var(--rail-width) 1fr;
+}
+
+.takeoverNotice {
+  padding: 0.625rem 1rem;
+  background-color: var(--amber);
+  color: var(--carbon);
+  text-align: center;
+  font-weight: 700;
 }
 
 .rail {
@@ -111,6 +126,8 @@
   min-height: 48px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.625rem 0.75rem;
   color: var(--text);
   border-left: 2px solid transparent;
@@ -135,10 +152,63 @@
   font-size: 0.875rem;
 }
 
+.contactPresence {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
+.presenceDot {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--text-muted);
+  border-radius: 50%;
+}
+
+.presenceDot.online {
+  background-color: var(--online);
+  border-color: var(--online);
+}
+
+.presenceDot.offline {
+  background-color: transparent;
+  border-color: var(--text-muted);
+}
+
+.presenceDot.connecting {
+  background-color: var(--amber);
+  border-color: var(--amber);
+  opacity: 0.65;
+}
+
 .me {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--border);
   font-size: 0.8125rem;
+}
+
+.me .handle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.realtimeStatus {
+  flex: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  text-align: right;
 }
 
 .conversation {

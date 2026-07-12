@@ -117,7 +117,9 @@ describe("contact consent flow", () => {
     expect(
       await within(dialog).findByText("No incoming requests. New requests will appear here.")
     ).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: "@carol" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: "@carol, connecting" })
+    ).toBeInTheDocument();
     expect(client.api.incomingRequests).toHaveBeenCalledTimes(3);
     expect(client.api.listContacts).toHaveBeenCalledTimes(2);
   });
@@ -141,7 +143,9 @@ describe("contact consent flow", () => {
     expect(
       await within(dialog).findByText("No incoming requests. New requests will appear here.")
     ).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "@carol" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "@carol, connecting" })
+    ).not.toBeInTheDocument();
     expect(client.api.listContacts).toHaveBeenCalledTimes(2);
   });
 
@@ -156,10 +160,11 @@ describe("contact consent flow", () => {
 
     const list = await screen.findByRole("navigation", { name: "Contact list" });
     await waitFor(() => {
-      expect(within(list).getAllByRole("link").map((link) => link.textContent)).toEqual([
-        "@amy",
-        "@zoe",
-      ]);
+      expect(
+        within(list)
+          .getAllByRole("link")
+          .map((link) => link.getAttribute("aria-label"))
+      ).toEqual(["@amy, connecting", "@zoe, connecting"]);
     });
   });
 

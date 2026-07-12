@@ -32,3 +32,16 @@ export type IceServersResponse = {
 export type ApiError = {
   error: string;
 };
+
+export type SignalEvent = {
+  type: "signal";
+  from: User;
+  signal_type: string;
+  payload: Record<string, unknown>;
+  connection_id?: string;
+};
+
+export type SignalError = {
+  type: "error";
+  error: string;
+};

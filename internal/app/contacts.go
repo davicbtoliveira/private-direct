@@ -175,7 +175,7 @@ func (s *Server) handleCreateContactRequest(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "contact_request_failed")
 		return
 	}
-	s.presence.sendToUser(recipient.ID, contactsChangedEvent{Type: "contacts_changed"})
+	s.presence.notifyUser(recipient.ID, contactsChangedEvent{Type: "contacts_changed"})
 
 	writeJSON(w, http.StatusCreated, contactRequestResponse{
 		ID:        id,
@@ -307,19 +307,11 @@ func (s *Server) updateContactRequest(w http.ResponseWriter, r *http.Request, st
 	}
 
 	changed := contactsChangedEvent{Type: "contacts_changed"}
-	s.presence.sendToUser(requester.ID, changed)
-	s.presence.sendToUser(user.ID, changed)
+	s.presence.notifyUser(requester.ID, changed)
+	s.presence.notifyUser(user.ID, changed)
 	if status == "accepted" {
-		s.presence.sendToUser(requester.ID, presenceEvent{
-			Type:   "presence",
-			User:   user,
-			Online: s.presence.isOnline(user.ID),
-		})
-		s.presence.sendToUser(user.ID, presenceEvent{
-			Type:   "presence",
-			User:   requester,
-			Online: s.presence.isOnline(requester.ID),
-		})
+		s.presence.sendCurrentPresence(requester.ID, user)
+		s.presence.sendCurrentPresence(user.ID, requester)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

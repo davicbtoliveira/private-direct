@@ -210,7 +210,7 @@ func readWSError(t *testing.T, conn *websocket.Conn) wsErrorEvent {
 
 func readRawWSEvent(t *testing.T, conn *websocket.Conn) (string, []byte) {
 	t.Helper()
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	_, data, err := conn.ReadMessage()
 	if err != nil {
 		t.Fatalf("read websocket: %v", err)

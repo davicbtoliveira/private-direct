@@ -7,12 +7,23 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var wsUpgrader = websocket.Upgrader{}
+const webSocketProtocol = "private-direct"
+
+var wsUpgrader = websocket.Upgrader{Subprotocols: []string{webSocketProtocol}}
+
+type presenceSnapshotEvent struct {
+	Type        string     `json:"type"`
+	OnlineUsers []authUser `json:"online_users"`
+}
 
 type presenceEvent struct {
 	Type   string   `json:"type"`
 	User   authUser `json:"user"`
 	Online bool     `json:"online"`
+}
+
+type sessionReplacedEvent struct {
+	Type string `json:"type"`
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -27,15 +38,24 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := &wsClient{user: user, conn: conn}
+	client.onWriteFailure = func(failed *wsClient) {
+		if s.presence.remove(failed) {
+			s.broadcastPresence(context.Background(), failed.user, false)
+		}
+	}
 
-	if s.presence.add(client) {
-		s.broadcastPresence(r.Context(), user, true)
+	_, err = s.presence.activate(client, func() ([]authUser, error) {
+		return s.acceptedContacts(r.Context(), user.ID)
+	})
+	if err != nil {
+		client.close()
+		return
 	}
 	defer func() {
+		client.close()
 		if s.presence.remove(client) {
 			s.broadcastPresence(context.Background(), user, false)
 		}
-		conn.Close()
 	}()
 
 	for {
@@ -43,15 +63,26 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err := conn.ReadJSON(&message); err != nil {
 			return
 		}
-		s.handleWebSocketMessage(r, client, message)
+		if !client.processMessage(func() {
+			s.handleWebSocketMessage(r, client, message)
+		}) {
+			return
+		}
 	}
 }
 
 func (s *Server) authenticateWebSocket(r *http.Request) (authUser, bool) {
-	if token := r.URL.Query().Get("access_token"); token != "" {
-		return s.authenticateToken(token)
+	if _, ok := r.URL.Query()["access_token"]; ok {
+		return authUser{}, false
 	}
-	return s.authenticate(r)
+	if len(r.Header.Values("Authorization")) != 0 {
+		return authUser{}, false
+	}
+	protocols := websocket.Subprotocols(r)
+	if len(protocols) != 2 || protocols[0] != webSocketProtocol || protocols[1] == "" {
+		return authUser{}, false
+	}
+	return s.authenticateToken(protocols[1])
 }
 
 func (s *Server) broadcastPresence(ctx context.Context, user authUser, online bool) {
@@ -59,11 +90,7 @@ func (s *Server) broadcastPresence(ctx context.Context, user authUser, online bo
 	if err != nil {
 		return
 	}
-	s.presence.sendTo(contactIDs, presenceEvent{
-		Type:   "presence",
-		User:   user,
-		Online: online,
-	})
+	s.presence.sendPresenceToContacts(user, online, contactIDs)
 }
 
 func (s *Server) acceptedContactIDs(ctx context.Context, userID int64) ([]int64, error) {
@@ -84,7 +111,7 @@ func (s *Server) acceptedContactIDs(ctx context.Context, userID int64) ([]int64,
 	}
 	defer rows.Close()
 
-	var ids []int64
+	ids := make([]int64, 0)
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
@@ -96,4 +123,37 @@ func (s *Server) acceptedContactIDs(ctx context.Context, userID int64) ([]int64,
 		return nil, err
 	}
 	return ids, nil
+}
+
+func (s *Server) acceptedContacts(ctx context.Context, userID int64) ([]authUser, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT users.id, users.username
+		 FROM contacts
+		 JOIN users ON users.id = CASE
+		   WHEN contacts.user_low_id = ? THEN contacts.user_high_id
+		   ELSE contacts.user_low_id
+		 END
+		 WHERE contacts.user_low_id = ? OR contacts.user_high_id = ?
+		 ORDER BY users.username`,
+		userID,
+		userID,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	contacts := make([]authUser, 0)
+	for rows.Next() {
+		var contact authUser
+		if err := rows.Scan(&contact.ID, &contact.Username); err != nil {
+			return nil, err
+		}
+		contacts = append(contacts, contact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return contacts, nil
 }
