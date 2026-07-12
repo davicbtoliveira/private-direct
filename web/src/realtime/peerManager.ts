@@ -17,6 +17,7 @@ interface PeerState {
   pendingIceCandidates: RTCIceCandidateInit[];
   negotiationTimer: ReturnType<typeof setTimeout> | null;
   autoRetryUsed: boolean;
+  pendingMessages: string[];
 }
 
 export type SignalSender = (toUserId: number, signalType: string, payload: Record<string, unknown>) => void;
@@ -110,9 +111,16 @@ export class PeerManager {
 
   sendMessage(userId: number, data: string) {
     const state = this.peers.get(userId);
-    if (!state?.channel || state.channel.readyState !== "open") return false;
-    state.channel.send(data);
-    return true;
+    if (!state) return false;
+    if (state.channel && state.channel.readyState === "open") {
+      state.channel.send(data);
+      return true;
+    }
+    if (state.pendingMessages.length < 20) {
+      state.pendingMessages.push(data);
+      return true;
+    }
+    return false;
   }
 
   getState(userId: number): PeerChannelState {
@@ -226,6 +234,7 @@ export class PeerManager {
       pendingIceCandidates: [],
       negotiationTimer: null,
       autoRetryUsed: false,
+      pendingMessages: [],
     };
 
     this.peers.set(userId, state);
@@ -298,6 +307,14 @@ export class PeerManager {
     channel.onopen = () => {
       clearNegotiationTimer(this.peers.get(userId));
       this.setState(userId, "directly-connected");
+      const state = this.peers.get(userId);
+      if (!state) return;
+      const pending = state.pendingMessages.splice(0);
+      for (const msg of pending) {
+        if (channel.readyState === "open") {
+          channel.send(msg);
+        }
+      }
     };
     channel.onclose = () => {
       const state = this.peers.get(userId);
@@ -326,6 +343,7 @@ export class PeerManager {
 
   private handleNegotiationFailure(state: PeerState) {
     clearNegotiationTimer(state);
+    state.pendingMessages = [];
     this.setState(this.getUserIdFromState(state), "failed");
     if (state.connection) {
       state.connection.close();
