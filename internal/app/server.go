@@ -71,6 +71,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	s.mux.HandleFunc("POST /api/logout", s.handleLogout)
+	s.mux.HandleFunc("POST /api/e2ee/setup", s.handleE2EESetup)
 	s.mux.HandleFunc("GET /api/users/lookup", s.handleLookupUser)
 	s.mux.HandleFunc("POST /api/contacts/requests", s.handleCreateContactRequest)
 	s.mux.HandleFunc("GET /api/contacts/requests/incoming", s.handleIncomingContactRequests)

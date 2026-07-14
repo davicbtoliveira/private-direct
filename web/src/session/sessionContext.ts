@@ -14,6 +14,7 @@ export type SessionAction =
   | { type: "restore_success"; user: User }
   | { type: "restore_failure" }
   | { type: "login_success"; user: User }
+  | { type: "e2ee_ready" }
   | { type: "logout" }
   | { type: "error"; message: string };
 
@@ -33,6 +34,8 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return { status: "unauthenticated", user: null, error: null };
     case "login_success":
       return { status: "authenticated", user: action.user, error: null };
+    case "e2ee_ready":
+      return state.user ? { ...state, user: { ...state.user, e2ee_ready: true } } : state;
     case "logout":
       return { status: "unauthenticated", user: null, error: null };
     case "error":
@@ -46,6 +49,7 @@ type SessionContextValue = {
   state: SessionState;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  markE2EEReady: () => void;
 };
 
 export const SessionContext = createContext<SessionContextValue | null>(null);

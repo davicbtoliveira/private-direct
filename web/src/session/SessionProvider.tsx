@@ -88,7 +88,12 @@ export default function SessionProvider({ children }: Props) {
     }
   }, []);
 
-  const value = useMemo(() => ({ state, login, logout }), [state, login, logout]);
+  const markE2EEReady = useCallback(() => dispatch({ type: "e2ee_ready" }), []);
+
+  const value = useMemo(
+    () => ({ state, login, logout, markE2EEReady }),
+    [state, login, logout, markE2EEReady],
+  );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

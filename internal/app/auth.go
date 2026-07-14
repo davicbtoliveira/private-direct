@@ -23,8 +23,9 @@ const (
 )
 
 type authUser struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	E2EEReady bool   `json:"e2ee_ready"`
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -44,9 +45,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var user authUser
 	var passwordHash string
 	err := s.db.QueryRowContext(r.Context(),
-		"SELECT id, username, password_hash FROM users WHERE username = ?",
+		`SELECT users.id, users.username, users.password_hash,
+		 EXISTS(SELECT 1 FROM e2ee_accounts WHERE e2ee_accounts.user_id = users.id)
+		 FROM users WHERE users.username = ?`,
 		username,
-	).Scan(&user.ID, &user.Username, &passwordHash)
+	).Scan(&user.ID, &user.Username, &passwordHash, &user.E2EEReady)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials")
 		return
@@ -160,13 +163,14 @@ func (s *Server) userForRefreshToken(r *http.Request, token string) (authUser, e
 	var user authUser
 	var expiresAt string
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT users.id, users.username, refresh_sessions.expires_at
+		`SELECT users.id, users.username, refresh_sessions.expires_at,
+		 EXISTS(SELECT 1 FROM e2ee_accounts WHERE e2ee_accounts.user_id = users.id)
 		 FROM refresh_sessions
 		 JOIN users ON users.id = refresh_sessions.user_id
 		 WHERE refresh_sessions.token_hash = ?
 		   AND refresh_sessions.revoked_at IS NULL`,
 		hashToken(token),
-	).Scan(&user.ID, &user.Username, &expiresAt)
+	).Scan(&user.ID, &user.Username, &expiresAt, &user.E2EEReady)
 	if err != nil {
 		return authUser{}, err
 	}

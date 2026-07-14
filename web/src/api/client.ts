@@ -6,6 +6,7 @@ import type {
   IceServersResponse,
   RegistrationResponse,
 } from "./types";
+import type { E2EESetupPayload } from "../e2ee/setup";
 
 const BASE = "/api";
 
@@ -70,6 +71,8 @@ export const api = {
     }),
   refresh: () => request<SessionResponse>("/refresh", { method: "POST", body: {} }),
   logout: () => request<void>("/logout", { method: "POST", body: {} }),
+  setupE2EE: (body: E2EESetupPayload) =>
+    request<{ e2ee_ready: true }>("/e2ee/setup", { method: "POST", body }),
   lookupUser: (username: string) =>
     request<LookupUser>(`/users/lookup?username=${encodeURIComponent(username)}`),
   createContactRequest: (username: string) =>

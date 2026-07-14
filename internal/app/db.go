@@ -93,6 +93,28 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS e2ee_accounts (
+			user_id INTEGER PRIMARY KEY,
+			protocol_version INTEGER NOT NULL,
+			identity_keys TEXT NOT NULL,
+			wrapped_master_key TEXT NOT NULL,
+			kdf_salt TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		},
+		{
+			query: `CREATE TABLE IF NOT EXISTS e2ee_devices (
+			id TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL,
+			public_keys TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			last_seen_at TEXT NOT NULL,
+			revoked_at TEXT,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		},
+		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (1, ?)`,
 			args: []any{now},
@@ -110,6 +132,11 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (4, ?)`,
+			args: []any{now},
+		},
+		{
+			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+		 VALUES (5, ?)`,
 			args: []any{now},
 		},
 	}

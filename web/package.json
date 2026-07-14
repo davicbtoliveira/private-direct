@@ -16,6 +16,8 @@
     "@fontsource/atkinson-hyperlegible": "^5.0.18",
     "@fontsource/chivo": "^5.0.18",
     "@fontsource/ibm-plex-mono": "^5.0.19",
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.3.1",
+    "@scure/bip39": "1.6.0",
     "lucide-react": "^0.408.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
