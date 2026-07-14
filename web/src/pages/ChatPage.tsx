@@ -8,9 +8,10 @@ import { useSession } from "../session/sessionContext";
 import type { PeerChannelState } from "../realtime/peerManager";
 import { api } from "../api/client";
 import { matrixSession } from "../e2ee/matrixSession";
+import { queueMessage, queuedMessages, removeQueued } from "../e2ee/outbox";
 import styles from "./ChatPage.module.css";
 
-type DeliveryState = "sending" | "sent" | "delivered" | "not-delivered";
+type DeliveryState = "queued" | "sending" | "sent" | "delivered" | "not-delivered";
 
 interface ChatMessage {
   id: string;
@@ -161,9 +162,10 @@ export default function ChatPage() {
             id: stored.id,
             direction: stored.sender_id === me.id ? "sent" : "received",
             content: body.body,
-            delivery: "sent",
+            delivery: stored.sender_id === me.id && stored.delivered ? "delivered" : "sent",
             timestamp: typeof body.sent_at === "string" ? body.sent_at : stored.created_at,
           });
+          if (stored.recipient_id === me.id) void api.markMessageDelivered(stored.id);
         }
         if (!cancelled) {
           transcriptsRef.current[username] = loaded;
@@ -175,6 +177,11 @@ export default function ChatPage() {
     })();
     return () => { cancelled = true; };
   }, [contact, mailboxRevision, me, rerender, username]);
+
+  useEffect(() => {
+    if (!me || realtimeState !== "connected") return;
+    void (async()=>{for(const item of await queuedMessages()){try{await api.createMessage(item.id,item.to,item.ciphertext);await removeQueued(item.id);for(const messages of Object.values(transcriptsRef.current)){const found=messages.find(message=>message.id===item.id);if(found)found.delivery="sent"}}catch{continue}}rerender()})();
+  },[mailboxRevision,me,realtimeState,rerender]);
 
   const setComposerWithDraft = useCallback((value: string) => {
     if (codePointLength(value) > COMPOSER_LIMIT) return;
@@ -310,10 +317,15 @@ export default function ChatPage() {
     try {
       const cryptoSession = await matrixSession(me!.username);
       const ciphertext = await cryptoSession.encrypt(me!.id, contactId, contact.username, { body: content, sent_at: timestamp });
+      await queueMessage({ id, to: contactId, ciphertext });
+      message.delivery = "queued";
+      rerender();
       await api.createMessage(id, contactId, ciphertext);
+      await removeQueued(id);
       message.delivery = "sent";
-    } catch {
-      message.delivery = "not-delivered";
+    } catch (error) {
+      const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 0;
+      message.delivery = status >= 400 && status < 500 && status !== 429 ? "not-delivered" : "queued";
     }
     rerender();
   };
@@ -337,7 +349,10 @@ export default function ChatPage() {
     try {
       const cryptoSession = await matrixSession(me!.username);
       const ciphertext = await cryptoSession.encrypt(me!.id, contact.id, contact.username, { body: message.content, sent_at: message.timestamp });
+      await queueMessage({ id: message.id, to: contact.id, ciphertext });
+      message.delivery="queued";rerender();
       await api.createMessage(message.id, contact.id, ciphertext);
+      await removeQueued(message.id);
       message.delivery = "sent";
     } catch { message.delivery = "not-delivered"; }
     rerender();
@@ -515,6 +530,8 @@ export default function ChatPage() {
                             <span className={styles.delivery} data-delivery={msg.delivery}>
                               {msg.delivery === "sending"
                                 ? "sending"
+                                : msg.delivery === "queued"
+                                  ? "queued"
                                 : msg.delivery === "sent"
                                   ? "sent"
                                 : msg.delivery === "delivered"

@@ -68,7 +68,7 @@ func (s *Server) handleListEncryptedMessages(w http.ResponseWriter, r *http.Requ
 	if limit <= 0 || limit > 50 {
 		limit = 50
 	}
-	query := `SELECT sequence,message_id,sender_id,recipient_id,ciphertext,created_at FROM encrypted_messages WHERE ((sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?))`
+	query := `SELECT sequence,message_id,sender_id,recipient_id,ciphertext,created_at,EXISTS(SELECT 1 FROM message_deliveries WHERE message_deliveries.message_id=encrypted_messages.message_id) FROM encrypted_messages WHERE ((sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?))`
 	args := []any{user.ID, contactID, contactID, user.ID}
 	if before > 0 {
 		query += " AND sequence < ?"
@@ -86,14 +86,39 @@ func (s *Server) handleListEncryptedMessages(w http.ResponseWriter, r *http.Requ
 	for rows.Next() {
 		var seq, sender, recipient int64
 		var id, cipher, created string
-		if rows.Scan(&seq, &id, &sender, &recipient, &cipher, &created) != nil {
+		var delivered bool
+		if rows.Scan(&seq, &id, &sender, &recipient, &cipher, &created, &delivered) != nil {
 			continue
 		}
 		var raw any
 		if json.Unmarshal([]byte(cipher), &raw) != nil {
 			continue
 		}
-		messages = append(messages, map[string]any{"sequence": seq, "id": id, "sender_id": sender, "recipient_id": recipient, "ciphertext": raw, "created_at": created})
+		messages = append(messages, map[string]any{"sequence": seq, "id": id, "sender_id": sender, "recipient_id": recipient, "ciphertext": raw, "created_at": created, "delivered": delivered})
 	}
 	writeJSON(w, 200, map[string]any{"messages": messages})
+}
+
+func (s *Server) handleMessageDelivered(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.authenticate(r)
+	if !ok {
+		writeError(w, 401, "unauthorized")
+		return
+	}
+	id := r.PathValue("id")
+	var sender, recipient int64
+	if s.db.QueryRowContext(r.Context(), "SELECT sender_id,recipient_id FROM encrypted_messages WHERE message_id=?", id).Scan(&sender, &recipient) != nil {
+		writeError(w, 404, "message_not_found")
+		return
+	}
+	if recipient != user.ID {
+		writeError(w, 403, "not_recipient")
+		return
+	}
+	if _, err := s.db.ExecContext(r.Context(), "INSERT OR IGNORE INTO message_deliveries(message_id,delivered_at) VALUES(?,?)", id, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		writeError(w, 500, "delivery_failed")
+		return
+	}
+	s.presence.notifyUser(sender, map[string]any{"type": "mailbox_changed"})
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -151,6 +151,13 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS message_deliveries (
+			message_id TEXT PRIMARY KEY,
+			delivered_at TEXT NOT NULL,
+			FOREIGN KEY (message_id) REFERENCES encrypted_messages(message_id) ON DELETE CASCADE
+		)`,
+		},
+		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (1, ?)`,
 			args: []any{now},
@@ -178,6 +185,11 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (6, ?)`,
+			args: []any{now},
+		},
+		{
+			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+		 VALUES (7, ?)`,
 			args: []any{now},
 		},
 	}
