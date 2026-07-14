@@ -123,6 +123,13 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS e2ee_device_names (
+			device_id TEXT PRIMARY KEY,
+			display_name TEXT NOT NULL,
+			FOREIGN KEY (device_id) REFERENCES e2ee_devices(id) ON DELETE CASCADE
+		)`,
+		},
+		{
 			query: `CREATE TABLE IF NOT EXISTS e2ee_one_time_keys (
 			user_id INTEGER NOT NULL,
 			device_id TEXT NOT NULL,

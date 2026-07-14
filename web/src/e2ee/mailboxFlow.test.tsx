@@ -14,6 +14,7 @@ vi.mock("./matrixSession", () => ({ matrixSession: vi.fn().mockResolvedValue(cry
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   FakeWebSocket.reset();
   client.setAccessToken(null);
   vi.spyOn(client.api, "refresh").mockResolvedValue({ access_token:"token",token_type:"Bearer",expires_in:900,user:{id:1,username:"alice",e2ee_ready:true} });
@@ -22,6 +23,7 @@ beforeEach(() => {
   vi.spyOn(client.api, "listMessages").mockResolvedValue({messages:[{id:"550e8400-e29b-41d4-a716-446655440000",sequence:1,sender_id:2,recipient_id:1,ciphertext:{ciphertext:"opaque"},created_at:"2026-07-14T00:00:00Z",delivered:false}]});
   vi.spyOn(client.api, "markMessageDelivered").mockResolvedValue(undefined);
   vi.spyOn(client.api, "createMessage").mockResolvedValue({id:"id",sequence:2,created_at:"2026-07-14T00:01:00Z"});
+  vi.spyOn(client.api, "contactIdentity").mockResolvedValue({username:"bob",identity_keys:{master:"bob-public"}});
 });
 
 it("loads decrypted history and persists only encrypted outgoing content", async () => {

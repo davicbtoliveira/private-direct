@@ -257,6 +257,11 @@ func (s *Server) handleE2EESync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "device_id_required")
 		return
 	}
+	var active int
+	if err := s.db.QueryRowContext(r.Context(), `SELECT 1 FROM e2ee_devices WHERE id=? AND user_id=? AND revoked_at IS NULL`, deviceID, user.ID).Scan(&active); err != nil {
+		writeError(w, http.StatusForbidden, "device_revoked")
+		return
+	}
 	var cursor int64
 	fmt.Sscan(since, &cursor)
 	rows, err := s.db.QueryContext(r.Context(), `SELECT sequence,sender,event_type,content FROM e2ee_to_device_events WHERE recipient_user_id=? AND recipient_device_id=? AND sequence>? ORDER BY sequence LIMIT 500`, user.ID, deviceID, cursor)

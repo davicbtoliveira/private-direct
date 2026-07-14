@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bell, LogOut, Plus, RefreshCw, Send } from "lucide-react";
+import { ArrowLeft, Bell, LogOut, Plus, RefreshCw, Send, ShieldCheck, Smartphone } from "lucide-react";
 import AddContactSheet from "../contacts/AddContactSheet";
 import IncomingRequestsSheet from "../contacts/IncomingRequestsSheet";
 import { useRealtime, type PresenceState } from "../realtime/realtimeContext";
@@ -10,6 +10,10 @@ import { api } from "../api/client";
 import { matrixSession } from "../e2ee/matrixSession";
 import { queueMessage, queuedMessages, removeQueued } from "../e2ee/outbox";
 import styles from "./ChatPage.module.css";
+import DevicesSheet from "../e2ee/DevicesSheet";
+import Sheet from "../components/Sheet";
+import securityStyles from "../e2ee/SecuritySheets.module.css";
+import { identityFingerprint, knownIdentity, trustIdentity } from "../e2ee/identity";
 
 type DeliveryState = "queued" | "sending" | "sent" | "delivered" | "not-delivered";
 
@@ -124,6 +128,12 @@ export default function ChatPage() {
   const registrationWarning = (location.state as { warning?: string } | null)?.warning;
   const addTriggerRef = useRef<HTMLButtonElement>(null);
   const requestsTriggerRef = useRef<HTMLButtonElement>(null);
+  const devicesTriggerRef = useRef<HTMLButtonElement>(null);
+  const identityTriggerRef = useRef<HTMLButtonElement>(null);
+  const [devicesOpen,setDevicesOpen]=useState(false);
+  const [identityOpen,setIdentityOpen]=useState(false);
+  const [fingerprint,setFingerprint]=useState("");
+  const [identityChanged,setIdentityChanged]=useState(false);
 
   // Chat state: per-contact transcripts, drafts, unread, deduplication
   const [composer, setComposer] = useState("");
@@ -138,6 +148,8 @@ export default function ChatPage() {
   const rerender = useCallback(() => forceUpdate((n) => n + 1), []);
 
   const contact = contacts.find((c) => c.username === username);
+
+  useEffect(()=>{if(!contact)return;let cancelled=false;void api.contactIdentity(contact.username).then(async result=>{const next=await identityFingerprint(result.identity_keys);if(cancelled)return;const known=knownIdentity(contact.username);if(known===null)trustIdentity(contact.username,next);setFingerprint(next);setIdentityChanged(known!==null&&known!==next)}).catch(()=>{if(!cancelled)setIdentityChanged(true)});return()=>{cancelled=true}},[contact]);
 
   // Get or initialize transcript for username
   const transcript = username ? transcriptsRef.current[username] ?? [] : [];
@@ -309,7 +321,7 @@ export default function ChatPage() {
       ? `Incoming requests, ${requests.length} pending`
       : "Incoming requests";
 
-  const canSend = composerValue.trim().length > 0;
+  const canSend = composerValue.trim().length > 0 && !identityChanged;
 
   const sendMessage = async () => {
     if (!canSend || !username || !contact) return;
@@ -437,6 +449,15 @@ export default function ChatPage() {
                   )}
                 </button>
                 <button
+                  ref={devicesTriggerRef}
+                  className={styles.iconBtn}
+                  aria-label="Authorized devices"
+                  title="Authorized devices"
+                  onClick={() => setDevicesOpen(true)}
+                >
+                  <Smartphone size={18} />
+                </button>
+                <button
                   className={styles.iconBtn}
                   aria-label="Sign out"
                   title="Sign out"
@@ -521,6 +542,7 @@ export default function ChatPage() {
               <span className={styles.handle}>
                 {username ? `@${username}` : "No conversation selected"}
               </span>
+              {username && <button ref={identityTriggerRef} type="button" className={styles.identityBtn} onClick={()=>setIdentityOpen(true)} aria-label="Verify contact identity"><ShieldCheck size={17}/>{identityChanged?"Identity changed":"Verify"}</button>}
               {username && (
                 <span className={styles.channelState} aria-live="polite">
                   {channelLabels[peerState]}
@@ -584,6 +606,7 @@ export default function ChatPage() {
 
               {username && (
                 <div className={styles.composerArea}>
+                  {identityChanged && <div className={styles.identityWarning} role="alert">Contact identity changed. Verify safety number before sending.</div>}
                   {peerState === "offline" && (
                     <p className={styles.offlineNotice}>
                       {contact?.username ?? username} is offline. Messages cannot be delivered.
@@ -652,6 +675,8 @@ export default function ChatPage() {
           returnFocusRef={requestsTriggerRef}
         />
       )}
+      {devicesOpen && <DevicesSheet onClose={()=>setDevicesOpen(false)} returnFocusRef={devicesTriggerRef}/>} 
+      {identityOpen && <Sheet title={`Verify @${username}`} onClose={()=>setIdentityOpen(false)} returnFocusRef={identityTriggerRef}><div className={securityStyles.body}><p>Compare this safety number through another trusted channel.</p><p className={securityStyles.number}>{fingerprint || "Identity unavailable"}</p>{identityChanged&&<button type="button" onClick={()=>{trustIdentity(username!,fingerprint);setIdentityChanged(false);setIdentityOpen(false)}}>I confirmed this new identity</button>}</div></Sheet>}
     </>
   );
 }

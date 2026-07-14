@@ -9,6 +9,7 @@ import { saveMasterKey } from "./keyStore";
 
 export type E2EESetupPayload = {
   device_id: string;
+  device_name: string;
   identity_keys: Record<string, unknown>;
   device_keys: Record<string, unknown>;
   wrapped_master_key: string;
@@ -73,6 +74,7 @@ export async function createE2EESetup(
 
     return {
       device_id: deviceID,
+      device_name: navigator.platform || "Browser",
       identity_keys: identityKeys,
       device_keys: deviceKeys,
       wrapped_master_key: JSON.stringify({ iv: base64(iv), ciphertext: base64(ciphertext) }),

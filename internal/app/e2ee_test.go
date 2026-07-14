@@ -108,3 +108,36 @@ func TestE2EERecoveryRegistersDeviceAndStoresOpaqueBackup(t *testing.T) {
 		t.Fatalf("devices=%d err=%v", devices, err)
 	}
 }
+
+func TestE2EEDevicesCanBeListedAndRevoked(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	token := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	headers := bearerHeaders(token)
+	res := postJSON(t, httpSrv.URL+"/api/e2ee/setup", headers, map[string]any{"device_id": "one", "device_name": "Alice laptop", "identity_keys": map[string]string{"master": "public"}, "device_keys": map[string]string{"key": "public"}, "wrapped_master_key": "wrapped", "kdf_salt": "salt", "protocol_version": 1})
+	assertStatus(t, res, http.StatusCreated)
+	res.Body.Close()
+	res = getJSON(t, httpSrv.URL+"/api/e2ee/devices", headers)
+	assertStatus(t, res, http.StatusOK)
+	var listed struct {
+		Devices []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"devices"`
+		Limit int `json:"limit"`
+	}
+	decodeResponse(t, res, &listed)
+	if len(listed.Devices) != 1 || listed.Devices[0].Name != "Alice laptop" || listed.Limit != 10 {
+		t.Fatalf("unexpected devices: %+v", listed)
+	}
+	req, _ := http.NewRequest(http.MethodDelete, httpSrv.URL+"/api/e2ee/devices/one", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, _ = http.DefaultClient.Do(req)
+	assertStatus(t, res, http.StatusNoContent)
+	res.Body.Close()
+	res = getJSON(t, httpSrv.URL+"/api/e2ee/sync?device_id=one", headers)
+	assertStatus(t, res, http.StatusForbidden)
+	assertErrorCode(t, res, "device_revoked")
+}

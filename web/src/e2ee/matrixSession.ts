@@ -32,6 +32,7 @@ function encode64(value: Uint8Array) { let result = ""; value.forEach(byte => re
 
 class MatrixSession {
   private cursor = "0";
+  private rooms = new Set<string>();
   private constructor(private machine: OlmMachine, private deviceID: string, private username: string) {}
 
   static async open(username: string) {
@@ -85,6 +86,7 @@ class MatrixSession {
       await this.machine.markRequestAsSent(request.id, request.type, await this.sendRequest(request));
     }
     const room = roomFor(myID, contactID);
+    this.rooms.add(room.toString());
     for (const raw of await this.machine.shareRoomKey(room, [contact], new EncryptionSettings())) {
       const request = raw as unknown as MatrixRequest;
       await this.machine.markRequestAsSent(request.id, request.type, await this.sendRequest(request));
@@ -103,7 +105,8 @@ class MatrixSession {
       origin_server_ts: Date.parse(timestamp),
       content: ciphertext,
     });
-    const decrypted = await this.machine.decryptRoomEvent(event, roomFor(myID, contactID), new DecryptionSettings(TrustRequirement.Untrusted));
+    const room = roomFor(myID, contactID); this.rooms.add(room.toString());
+    const decrypted = await this.machine.decryptRoomEvent(event, room, new DecryptionSettings(TrustRequirement.Untrusted));
     const result = JSON.parse(decrypted.event) as { content: Record<string, unknown> };
     void this.backupRoomKeys();
     return result;
@@ -117,6 +120,8 @@ class MatrixSession {
     const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(exported)));
     await api.saveKeyBackup(JSON.stringify({ iv: encode64(iv), ciphertext: encode64(ciphertext) }));
   }
+
+  async rotateFutureKeys() { for (const id of this.rooms) await this.machine.invalidateGroupSession(new RoomId(id)); }
 }
 
 export function rememberDevice(deviceID: string) { localStorage.setItem(DEVICE_KEY, deviceID); }

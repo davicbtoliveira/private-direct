@@ -1,0 +1,9 @@
+.body { padding: 1.25rem; }
+.notice { color: var(--text-muted); font-size: .875rem; }
+.error { color: var(--fault); }
+.list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; }
+.item { display: flex; justify-content: space-between; gap: 1rem; padding: .85rem; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.item div { min-width: 0; display: grid; gap: .35rem; }
+.item small { color: var(--text-muted); }
+.item button { align-self: center; background: none; border: 1px solid var(--fault); color: var(--fault); border-radius: var(--radius-sm); padding: .4rem .6rem; }
+.number { font-family: var(--font-mono); overflow-wrap: anywhere; line-height: 1.8; }
