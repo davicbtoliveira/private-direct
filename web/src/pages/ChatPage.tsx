@@ -33,7 +33,14 @@ interface AckEnvelope {
   message_id: string;
 }
 
-type PeerEnvelope = MessageEnvelope | AckEnvelope;
+interface EncryptedMessageEnvelope {
+  type: "encrypted_message";
+  id: string;
+  ciphertext: Record<string, unknown>;
+  timestamp: string;
+}
+
+type PeerEnvelope = MessageEnvelope | EncryptedMessageEnvelope | AckEnvelope;
 
 const COMPOSER_LIMIT = 4000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -59,10 +66,14 @@ function isValidUUID(value: unknown): value is string {
 function validEnvelope(data: unknown): PeerEnvelope | null {
   if (typeof data !== "object" || data === null) return null;
   const obj = data as Record<string, unknown>;
-  if (obj.type !== "message" && obj.type !== "ack") return null;
+  if (obj.type !== "message" && obj.type !== "encrypted_message" && obj.type !== "ack") return null;
   if (obj.type === "ack") {
     if (!isValidUUID(obj.message_id)) return null;
     return { type: "ack", message_id: obj.message_id as string };
+  }
+  if (obj.type === "encrypted_message") {
+    if (!isValidUUID(obj.id) || typeof obj.timestamp !== "string" || typeof obj.ciphertext !== "object" || obj.ciphertext === null) return null;
+    return { type: "encrypted_message", id: obj.id, timestamp: obj.timestamp, ciphertext: obj.ciphertext as Record<string, unknown> };
   }
   if (!isValidUUID(obj.id)) return null;
   if (typeof obj.content !== "string" || typeof obj.timestamp !== "string") return null;
@@ -252,12 +263,21 @@ export default function ChatPage() {
         sendToPeer(fromUserId, JSON.stringify({ type: "ack", message_id: envelope.id }));
         rerender();
       }
+
+      if (envelope.type === "encrypted_message" && me) {
+        if (receivedIDsRef.current.has(envelope.id)) {
+          sendToPeer(fromUserId, JSON.stringify({ type: "ack", message_id: envelope.id }));
+          return;
+        }
+        receivedIDsRef.current.add(envelope.id);
+        void (async()=>{try{const cryptoSession=await matrixSession(me.username);const decrypted=await cryptoSession.decrypt(me.id,fromContact.id,fromContact.username,envelope.id,envelope.timestamp,envelope.ciphertext);const body=decrypted.content;if(typeof body.body!=="string")return;if(!transcriptsRef.current[contactUsername])transcriptsRef.current[contactUsername]=[];transcriptsRef.current[contactUsername].push({id:envelope.id,direction:"received",content:body.body,delivery:"delivered",timestamp:typeof body.sent_at==="string"?body.sent_at:envelope.timestamp});sendToPeer(fromUserId,JSON.stringify({type:"ack",message_id:envelope.id}));rerender()}catch{receivedIDsRef.current.delete(envelope.id)}})();
+      }
     });
 
     return () => {
       setPeerMessageHandler(null);
     };
-  }, [contacts, sendToPeer, setPeerMessageHandler, username]);
+  }, [contacts, me, rerender, sendToPeer, setPeerMessageHandler, username]);
 
   // Clear unread when opening a conversation
   useEffect(() => {
@@ -323,6 +343,7 @@ export default function ChatPage() {
       await api.createMessage(id, contactId, ciphertext);
       await removeQueued(id);
       message.delivery = "sent";
+      sendToPeer(contactId, JSON.stringify({ type: "encrypted_message", id, ciphertext, timestamp }));
     } catch (error) {
       const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 0;
       message.delivery = status >= 400 && status < 500 && status !== 429 ? "not-delivered" : "queued";
@@ -354,6 +375,7 @@ export default function ChatPage() {
       await api.createMessage(message.id, contact.id, ciphertext);
       await removeQueued(message.id);
       message.delivery = "sent";
+      sendToPeer(contact.id, JSON.stringify({ type: "encrypted_message", id: message.id, ciphertext, timestamp: message.timestamp }));
     } catch { message.delivery = "not-delivered"; }
     rerender();
   };
