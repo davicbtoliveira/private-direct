@@ -100,3 +100,58 @@ token without putting that token in the URL.
 
 A unique canonical lowercase handle containing 3 to 32 ASCII letters, digits,
 dots, underscores, or hyphens. The UI prefixes it with `@`; storage does not.
+
+## Encrypted mailbox
+
+Server-side durable storage of end-to-end encrypted message envelopes. It is the
+canonical source for offline delivery and device synchronization, while WebRTC
+remains the preferred live delivery path.
+
+## Recovery key
+
+A high-entropy secret held by the user and never stored by the server. A client
+uses it to derive a key-encryption key and unwrap the account master key stored
+as ciphertext. Possession of both the recovery key and a database copy permits
+recovery of the account's complete encrypted history.
+
+## Safety number
+
+A human-verifiable representation of two contacts' account identity keys. An
+unexpected identity-key change blocks messaging until explicitly confirmed.
+
+## Tombstone
+
+A signed deletion event synchronized to conversation participants and their
+authorized devices. It replaces an actively stored message during deletion for
+both participants but cannot guarantee erasure from expired devices or operator
+backups.
+
+## Wrapped account master key
+
+An account master key encrypted by a key-encryption key derived locally from the
+user's recovery key. The server stores only the wrapped value and derivation
+parameters.
+
+## Authorized device
+
+A browser profile registered to use an account's E2EE identity and sync
+encrypted history. Multiple tabs in one profile share one device identity.
+Devices remain authorized until manually revoked, with a maximum of ten per
+account.
+
+## Canonical message order
+
+The order assigned by a monotonic per-conversation server sequence after a
+message ciphertext is committed. Client timestamps are informative only.
+
+## Global sync cursor
+
+A monotonic per-user position spanning encrypted mailbox events such as
+messages, tombstones, read state, devices, and key changes. Clients use it to
+resume idempotent HTTP synchronization after reconnecting.
+
+## Queued
+
+A message encrypted and durably stored on the sending device but not yet
+committed by the server. Queued messages upload automatically after connection
+recovery.
