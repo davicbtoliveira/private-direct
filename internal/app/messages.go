@@ -48,6 +48,7 @@ func (s *Server) handleCreateEncryptedMessage(w http.ResponseWriter, r *http.Req
 	}
 	var sequence int64
 	_ = s.db.QueryRowContext(r.Context(), "SELECT sequence FROM encrypted_messages WHERE message_id=?", body.ID).Scan(&sequence)
+	s.presence.notifyUser(body.To, map[string]any{"type": "mailbox_changed", "cursor": sequence})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": body.ID, "sequence": sequence, "created_at": now})
 }
 

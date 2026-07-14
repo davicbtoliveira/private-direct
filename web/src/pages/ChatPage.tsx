@@ -94,6 +94,7 @@ export default function ChatPage() {
     peerChannels,
     realtimeState,
     announcement,
+    mailboxRevision,
     refreshContacts,
     refreshRequests,
     refreshContactState,
@@ -173,7 +174,7 @@ export default function ChatPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [contact, me, rerender, username]);
+  }, [contact, mailboxRevision, me, rerender, username]);
 
   const setComposerWithDraft = useCallback((value: string) => {
     if (codePointLength(value) > COMPOSER_LIMIT) return;

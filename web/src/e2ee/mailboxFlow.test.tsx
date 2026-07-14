@@ -29,6 +29,9 @@ it("loads decrypted history and persists only encrypted outgoing content", async
   act(() => { FakeWebSocket.instances[0].open(); FakeWebSocket.instances[0].receive({type:"presence_snapshot",online_users:[]}); });
   expect(await screen.findByText("persisted secret")).toBeInTheDocument();
 
+  act(() => FakeWebSocket.instances[0].receive({ type: "mailbox_changed", cursor: 2 }));
+  await waitFor(() => expect(client.api.listMessages).toHaveBeenCalledTimes(2));
+
   const user=userEvent.setup();
   await user.type(screen.getByLabelText("Message"),"new secret");
   await user.click(screen.getByRole("button",{name:"Send message"}));

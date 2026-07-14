@@ -239,6 +239,7 @@ func (s *Server) handleE2EEToDevice(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+			s.presence.notifyUser(recipientID, map[string]any{"type": "mailbox_changed"})
 		}
 	}
 	writeJSON(w, 200, map[string]any{})

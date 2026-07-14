@@ -16,6 +16,7 @@ type RealtimeContextValue = {
   peerChannels: Record<number, PeerChannelState>;
   realtimeState: RealtimeState;
   announcement: string;
+  mailboxRevision: number;
   refreshContacts: () => Promise<void>;
   refreshRequests: () => Promise<void>;
   refreshContactState: () => Promise<void>;

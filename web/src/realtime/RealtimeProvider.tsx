@@ -46,6 +46,7 @@ export default function RealtimeProvider() {
   const [presence, setPresence] = useState<Record<number, PresenceState>>({});
   const [realtimeState, setRealtimeState] = useState<RealtimeState>("connecting");
   const [announcement, setAnnouncement] = useState("Realtime connecting.");
+  const [mailboxRevision, setMailboxRevision] = useState(0);
   const [peerChannels, setPeerChannels] = useState<Record<number, PeerChannelState>>({});
   const contactsRef = useRef<User[]>([]);
   const onlineUserIDsRef = useRef(new Set<number>());
@@ -285,6 +286,7 @@ export default function RealtimeProvider() {
           setConnectionState("connected");
           syncPresenceForContacts(contactsRef.current);
           setAnnouncement("Realtime connected.");
+          setMailboxRevision((current) => current + 1);
           return;
         }
 
@@ -303,6 +305,11 @@ export default function RealtimeProvider() {
 
         if (message.type === "contacts_changed") {
           void refreshContactState();
+          return;
+        }
+
+        if (message.type === "mailbox_changed") {
+          setMailboxRevision((current) => current + 1);
           return;
         }
 
@@ -374,6 +381,7 @@ export default function RealtimeProvider() {
       peerChannels,
       realtimeState,
       announcement,
+      mailboxRevision,
       refreshContacts,
       refreshRequests,
       refreshContactState,
@@ -386,6 +394,7 @@ export default function RealtimeProvider() {
     }),
     [
       announcement,
+      mailboxRevision,
       contacts,
       contactsError,
       contactsLoading,
