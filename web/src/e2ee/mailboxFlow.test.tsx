@@ -10,7 +10,7 @@ const cryptoSession = vi.hoisted(() => ({
   encrypt: vi.fn().mockResolvedValue({ algorithm: "m.megolm.v1.aes-sha2", ciphertext: "opaque" }),
   decrypt: vi.fn().mockResolvedValue({ content: { body: "persisted secret", sent_at: "2026-07-14T00:00:00Z" } }),
 }));
-vi.mock("./matrixSession", () => ({ matrixSession: vi.fn().mockResolvedValue(cryptoSession) }));
+vi.mock("./matrixSession", () => ({ matrixSession: vi.fn().mockResolvedValue(cryptoSession), hasRememberedDevice: () => true }));
 
 beforeEach(() => {
   vi.clearAllMocks();

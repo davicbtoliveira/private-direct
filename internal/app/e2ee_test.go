@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -66,4 +67,44 @@ func TestE2EESetupRejectsSecretsAndDuplicateSetup(t *testing.T) {
 	res = postJSON(t, httpSrv.URL+"/api/e2ee/setup", headers, payload)
 	assertStatus(t, res, http.StatusConflict)
 	assertErrorCode(t, res, "e2ee_already_setup")
+}
+
+func TestE2EERecoveryRegistersDeviceAndStoresOpaqueBackup(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	registerUser(t, httpSrv.URL, "invite-alice", "alice", "secret-password")
+	token := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	headers := map[string]string{"Authorization": "Bearer " + token}
+	setup := map[string]any{"device_id": "one", "identity_keys": map[string]string{"master": "public"}, "device_keys": map[string]string{"key": "public"}, "wrapped_master_key": "wrapped", "kdf_salt": "salt", "protocol_version": 1}
+	res := postJSON(t, httpSrv.URL+"/api/e2ee/setup", headers, setup)
+	assertStatus(t, res, http.StatusCreated)
+	res.Body.Close()
+
+	data, _ := json.Marshal(map[string]string{"ciphertext": "opaque-room-keys"})
+	req, _ := http.NewRequest(http.MethodPut, httpSrv.URL+"/api/e2ee/key-backup", bytes.NewReader(data))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, _ = http.DefaultClient.Do(req)
+	assertStatus(t, res, http.StatusNoContent)
+	res.Body.Close()
+	res = postJSON(t, httpSrv.URL+"/api/e2ee/recovery/devices", headers, map[string]any{"device_id": "two", "device_keys": map[string]string{"key": "new-public"}})
+	assertStatus(t, res, http.StatusCreated)
+	res.Body.Close()
+	res = getJSON(t, httpSrv.URL+"/api/e2ee/recovery", headers)
+	assertStatus(t, res, http.StatusOK)
+	var body struct {
+		WrappedMasterKey string `json:"wrapped_master_key"`
+		KDFSalt          string `json:"kdf_salt"`
+		KeyBackup        string `json:"key_backup"`
+	}
+	decodeResponse(t, res, &body)
+	if body.WrappedMasterKey != "wrapped" || body.KDFSalt != "salt" || body.KeyBackup != "opaque-room-keys" {
+		t.Fatalf("unexpected recovery response: %+v", body)
+	}
+
+	var devices int
+	if err := srv.db.QueryRow(`SELECT COUNT(*) FROM e2ee_devices WHERE user_id=1`).Scan(&devices); err != nil || devices != 2 {
+		t.Fatalf("devices=%d err=%v", devices, err)
+	}
 }

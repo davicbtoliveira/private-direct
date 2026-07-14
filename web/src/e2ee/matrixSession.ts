@@ -10,6 +10,9 @@ import {
   UserId,
 } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { api } from "../api/client";
+import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
+import { wordlist } from "@scure/bip39/wordlists/english";
+import { loadMasterKey, saveMasterKey } from "./keyStore";
 
 const DEVICE_KEY = "private-direct-device-id";
 let session: MatrixSession | null = null;
@@ -24,16 +27,18 @@ type MatrixRequest = {
 
 function matrixUser(username: string) { return new UserId(`@${username}:private-direct`); }
 function roomFor(a: number, b: number) { const [low, high] = a < b ? [a,b] : [b,a]; return new RoomId(`!dm_${low}_${high}:private-direct`); }
+function decode64(value: string) { return Uint8Array.from(atob(value), character => character.charCodeAt(0)); }
+function encode64(value: Uint8Array) { let result = ""; value.forEach(byte => result += String.fromCharCode(byte)); return btoa(result); }
 
 class MatrixSession {
   private cursor = "0";
-  private constructor(private machine: OlmMachine, private deviceID: string) {}
+  private constructor(private machine: OlmMachine, private deviceID: string, private username: string) {}
 
   static async open(username: string) {
     const deviceID = localStorage.getItem(DEVICE_KEY);
     if (!deviceID) throw new Error("e2ee_device_missing");
     const machine = await OlmMachine.initialize(matrixUser(username), new DeviceId(deviceID), `private-direct-${username}-${deviceID}`);
-    const value = new MatrixSession(machine, deviceID);
+    const value = new MatrixSession(machine, deviceID, username);
     await value.flushOutgoing();
     await value.syncKeys();
     return value;
@@ -84,7 +89,9 @@ class MatrixSession {
       const request = raw as unknown as MatrixRequest;
       await this.machine.markRequestAsSent(request.id, request.type, await this.sendRequest(request));
     }
-    return JSON.parse(await this.machine.encryptRoomEvent(room, "m.room.message", JSON.stringify(content))) as Record<string, unknown>;
+    const encrypted = JSON.parse(await this.machine.encryptRoomEvent(room, "m.room.message", JSON.stringify(content))) as Record<string, unknown>;
+    void this.backupRoomKeys();
+    return encrypted;
   }
 
   async decrypt(myID: number, contactID: number, senderUsername: string, messageID: string, timestamp: string, ciphertext: Record<string, unknown>) {
@@ -97,9 +104,53 @@ class MatrixSession {
       content: ciphertext,
     });
     const decrypted = await this.machine.decryptRoomEvent(event, roomFor(myID, contactID), new DecryptionSettings(TrustRequirement.Untrusted));
-    return JSON.parse(decrypted.event) as { content: Record<string, unknown> };
+    const result = JSON.parse(decrypted.event) as { content: Record<string, unknown> };
+    void this.backupRoomKeys();
+    return result;
+  }
+
+  async backupRoomKeys() {
+    const key = await loadMasterKey(this.username);
+    if (!key) return;
+    const exported = await this.machine.exportRoomKeys(() => true);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(exported)));
+    await api.saveKeyBackup(JSON.stringify({ iv: encode64(iv), ciphertext: encode64(ciphertext) }));
   }
 }
 
 export function rememberDevice(deviceID: string) { localStorage.setItem(DEVICE_KEY, deviceID); }
+export function hasRememberedDevice() { return localStorage.getItem(DEVICE_KEY) !== null; }
 export async function matrixSession(username: string) { session ??= await MatrixSession.open(username); return session; }
+
+export async function recoverDevice(username: string, phrase: string) {
+  if (!validateMnemonic(phrase.trim(), wordlist)) throw new Error("invalid_recovery_phrase");
+  const recovery = await api.e2eeRecovery();
+  if (recovery.protocol_version !== 1) throw new Error("unsupported_protocol_version");
+  const wrapped = JSON.parse(recovery.wrapped_master_key) as { iv: string; ciphertext: string };
+  const seed = new Uint8Array(mnemonicToSeedSync(phrase.trim()));
+  const material = await crypto.subtle.importKey("raw", seed, "HKDF", false, ["deriveKey"]);
+  const wrappingKey = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: decode64(recovery.kdf_salt), info: new TextEncoder().encode("private-direct-account-v1") }, material, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  let rawMaster: ArrayBuffer;
+  try { rawMaster = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode64(wrapped.iv) }, wrappingKey, decode64(wrapped.ciphertext)); }
+  catch { throw new Error("invalid_recovery_phrase"); }
+  seed.fill(0);
+  const master = await crypto.subtle.importKey("raw", rawMaster, "AES-GCM", false, ["encrypt", "decrypt"]);
+  new Uint8Array(rawMaster).fill(0);
+
+  const deviceID = crypto.randomUUID();
+  const machine = await OlmMachine.initialize(matrixUser(username), new DeviceId(deviceID), `private-direct-${username}-${deviceID}`);
+  try {
+    const upload = (await machine.outgoingRequests()).find(request => "body" in request);
+    if (!upload || !("body" in upload) || typeof upload.body !== "string") throw new Error("matrix_device_keys_unavailable");
+    await api.registerRecoveryDevice(deviceID, JSON.parse(upload.body) as Record<string, unknown>);
+    if (recovery.key_backup) {
+      const backup = JSON.parse(recovery.key_backup) as { iv: string; ciphertext: string };
+      const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode64(backup.iv) }, master, decode64(backup.ciphertext));
+      await machine.importExportedRoomKeys(new TextDecoder().decode(clear), () => undefined);
+    }
+    await saveMasterKey(username, master);
+    rememberDevice(deviceID);
+    session = null;
+  } finally { machine.close(); }
+}

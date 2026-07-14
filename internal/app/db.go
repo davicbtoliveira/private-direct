@@ -115,6 +115,14 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS e2ee_key_backups (
+			user_id INTEGER PRIMARY KEY,
+			ciphertext TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		},
+		{
 			query: `CREATE TABLE IF NOT EXISTS e2ee_one_time_keys (
 			user_id INTEGER NOT NULL,
 			device_id TEXT NOT NULL,
@@ -189,7 +197,12 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		},
 		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
-		 VALUES (7, ?)`,
+			 VALUES (7, ?)`,
+			args: []any{now},
+		},
+		{
+			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+			 VALUES (8, ?)`,
 			args: []any{now},
 		},
 	}

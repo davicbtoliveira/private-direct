@@ -73,6 +73,9 @@ export const api = {
   logout: () => request<void>("/logout", { method: "POST", body: {} }),
   setupE2EE: (body: E2EESetupPayload) =>
     request<{ e2ee_ready: true }>("/e2ee/setup", { method: "POST", body }),
+  e2eeRecovery: () => request<{ wrapped_master_key: string; kdf_salt: string; key_backup: string; protocol_version: number }>("/e2ee/recovery"),
+  registerRecoveryDevice: (device_id: string, device_keys: Record<string, unknown>) => request<{ device_id: string }>("/e2ee/recovery/devices", { method: "POST", body: { device_id, device_keys } }),
+  saveKeyBackup: (ciphertext: string) => request<void>("/e2ee/key-backup", { method: "PUT", body: { ciphertext } }),
   e2eeKeysUpload: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/upload", { method: "POST", body }),
   e2eeKeysQuery: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/query", { method: "POST", body }),
   e2eeKeysClaim: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/claim", { method: "POST", body }),

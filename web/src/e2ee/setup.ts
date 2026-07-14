@@ -5,6 +5,7 @@ import {
 } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { generateMnemonic, mnemonicToSeedSync } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
+import { saveMasterKey } from "./keyStore";
 
 export type E2EESetupPayload = {
   device_id: string;
@@ -65,6 +66,8 @@ export async function createE2EESetup(
     const ciphertext = new Uint8Array(
       await crypto.subtle.encrypt({ name: "AES-GCM", iv }, wrappingKey, masterKey),
     );
+    const storedMaster = await crypto.subtle.importKey("raw", masterKey, "AES-GCM", false, ["encrypt", "decrypt"]);
+    await saveMasterKey(username, storedMaster);
     masterKey.fill(0);
     seed.fill(0);
 
