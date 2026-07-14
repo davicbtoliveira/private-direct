@@ -308,7 +308,7 @@ export default function RealtimeProvider() {
           return;
         }
 
-        if (message.type === "mailbox_changed") {
+        if (message.type === "mailbox_changed" || message.type === "read_state_changed") {
           setMailboxRevision((current) => current + 1);
           return;
         }

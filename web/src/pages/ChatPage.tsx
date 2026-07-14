@@ -19,6 +19,7 @@ type DeliveryState = "queued" | "sending" | "sent" | "delivered" | "not-delivere
 
 interface ChatMessage {
   id: string;
+  sequence: number;
   direction: "sent" | "received";
   content: string;
   delivery: DeliveryState;
@@ -143,6 +144,9 @@ export default function ChatPage() {
   const unreadsRef = useRef<Record<string, number>>({});
   const receivedIDsRef = useRef(new Set<string>());
   const draftsRef = useRef<Record<string, string>>({});
+  const earliestRef = useRef<Record<string, number>>({});
+  const hasOlderRef = useRef<Record<string, boolean>>({});
+  const loadingOlderRef = useRef(false);
   const [, forceUpdate] = useState(0);
 
   const rerender = useCallback(() => forceUpdate((n) => n + 1), []);
@@ -183,6 +187,7 @@ export default function ChatPage() {
           if (typeof body.body !== "string") continue;
           loaded.push({
             id: stored.id,
+            sequence: stored.sequence,
             direction: stored.sender_id === me.id ? "sent" : "received",
             content: body.body,
             delivery: stored.sender_id === me.id && stored.delivered ? "delivered" : "sent",
@@ -191,7 +196,10 @@ export default function ChatPage() {
           if (stored.recipient_id === me.id) void api.markMessageDelivered(stored.id);
         }
         if (!cancelled) {
-          transcriptsRef.current[username] = loaded;
+          const existing = transcriptsRef.current[username] ?? [];
+          const merged = new Map(existing.map(message=>[message.id,message])); loaded.forEach(message=>merged.set(message.id,message));
+          transcriptsRef.current[username] = [...merged.values()].sort((a,b)=>a.sequence-b.sequence);
+          if(loaded.length){earliestRef.current[username]=Math.min(...loaded.map(message=>message.sequence));hasOlderRef.current[username]=response.messages.length===50;void api.markConversationRead(contact.id,Math.max(...loaded.map(message=>message.sequence))).catch(()=>undefined)}
           rerender();
         }
       } catch {
@@ -200,6 +208,14 @@ export default function ChatPage() {
     })();
     return () => { cancelled = true; };
   }, [contact, mailboxRevision, me, rerender, username]);
+
+  useEffect(()=>{void api.unreadMessages().then(({unread})=>{for(const item of contacts)unreadsRef.current[item.username]=unread[String(item.id)]??0;rerender()}).catch(()=>undefined)},[contacts,mailboxRevision,rerender]);
+
+  const loadOlder = async () => {
+    if(!contact||!me||!username||loadingOlderRef.current||!hasOlderRef.current[username])return;
+    loadingOlderRef.current=true;
+    try{const response=await api.listMessages(contact.id,earliestRef.current[username]);const cryptoSession=await matrixSession(me.username);const older:ChatMessage[]=[];for(const stored of [...response.messages].reverse()){const decrypted=await cryptoSession.decrypt(me.id,contact.id,stored.sender_id===me.id?me.username:contact.username,stored.id,stored.created_at,stored.ciphertext);if(typeof decrypted.content.body!=="string")continue;older.push({id:stored.id,sequence:stored.sequence,direction:stored.sender_id===me.id?"sent":"received",content:decrypted.content.body,delivery:stored.sender_id===me.id&&stored.delivered?"delivered":"sent",timestamp:typeof decrypted.content.sent_at==="string"?decrypted.content.sent_at:stored.created_at})}const existing=transcriptsRef.current[username]??[];const ids=new Set(existing.map(message=>message.id));transcriptsRef.current[username]=[...older.filter(message=>!ids.has(message.id)),...existing].sort((a,b)=>a.sequence-b.sequence);if(older.length)earliestRef.current[username]=Math.min(...older.map(message=>message.sequence));hasOlderRef.current[username]=response.messages.length===50;rerender()}finally{loadingOlderRef.current=false}
+  };
 
   useEffect(() => {
     if (!me || realtimeState !== "connected") return;
@@ -255,6 +271,7 @@ export default function ChatPage() {
 
         const message: ChatMessage = {
           id: envelope.id,
+          sequence: Number.MAX_SAFE_INTEGER,
           direction: "received",
           content: envelope.content,
           delivery: "delivered",
@@ -282,7 +299,7 @@ export default function ChatPage() {
           return;
         }
         receivedIDsRef.current.add(envelope.id);
-        void (async()=>{try{const cryptoSession=await matrixSession(me.username);const decrypted=await cryptoSession.decrypt(me.id,fromContact.id,fromContact.username,envelope.id,envelope.timestamp,envelope.ciphertext);const body=decrypted.content;if(typeof body.body!=="string")return;if(!transcriptsRef.current[contactUsername])transcriptsRef.current[contactUsername]=[];transcriptsRef.current[contactUsername].push({id:envelope.id,direction:"received",content:body.body,delivery:"delivered",timestamp:typeof body.sent_at==="string"?body.sent_at:envelope.timestamp});sendToPeer(fromUserId,JSON.stringify({type:"ack",message_id:envelope.id}));rerender()}catch{receivedIDsRef.current.delete(envelope.id)}})();
+        void (async()=>{try{const cryptoSession=await matrixSession(me.username);const decrypted=await cryptoSession.decrypt(me.id,fromContact.id,fromContact.username,envelope.id,envelope.timestamp,envelope.ciphertext);const body=decrypted.content;if(typeof body.body!=="string")return;if(!transcriptsRef.current[contactUsername])transcriptsRef.current[contactUsername]=[];transcriptsRef.current[contactUsername].push({id:envelope.id,sequence:Number.MAX_SAFE_INTEGER,direction:"received",content:body.body,delivery:"delivered",timestamp:typeof body.sent_at==="string"?body.sent_at:envelope.timestamp});sendToPeer(fromUserId,JSON.stringify({type:"ack",message_id:envelope.id}));rerender()}catch{receivedIDsRef.current.delete(envelope.id)}})();
       }
     });
 
@@ -332,6 +349,7 @@ export default function ChatPage() {
 
     const message: ChatMessage = {
       id,
+      sequence: Number.MAX_SAFE_INTEGER,
       direction: "sent",
       content,
       delivery: "sending",
@@ -556,7 +574,8 @@ export default function ChatPage() {
                   Select a contact to start a direct conversation.
                 </p>
               ) : (
-                <div className={styles.messagesArea}>
+                <div className={styles.messagesArea} onScroll={event=>{if(event.currentTarget.scrollTop===0)void loadOlder()}}>
+                  {hasOlderRef.current[username] && <button type="button" className={styles.loadOlder} onClick={()=>void loadOlder()}>Load older messages</button>}
                   {transcript.length === 0 && peerState !== "directly-connected" && (
                     <p className={styles.ephemeralNotice}>
                       Messages are temporary and only visible in this tab.

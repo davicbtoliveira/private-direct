@@ -87,6 +87,8 @@ export const api = {
   createMessage: (id: string, to: number, ciphertext: Record<string, unknown>) => request<{ id: string; sequence: number; created_at: string }>("/messages", { method: "POST", body: { id, to, ciphertext } }),
   listMessages: (contactID: number, before?: number) => request<{ messages: Array<{ id: string; sequence: number; sender_id: number; recipient_id: number; ciphertext: Record<string, unknown>; created_at: string; delivered: boolean }> }>(`/messages?contact_id=${contactID}&limit=50${before ? `&before=${before}` : ""}`),
   markMessageDelivered: (id: string) => request<void>(`/messages/${encodeURIComponent(id)}/delivered`, { method: "POST", body: {} }),
+  unreadMessages: () => request<{ unread: Record<string, number> }>("/messages/unread"),
+  markConversationRead: (contactID: number, sequence: number) => request<void>(`/conversations/${contactID}/read`, { method: "PUT", body: { sequence } }),
   lookupUser: (username: string) =>
     request<LookupUser>(`/users/lookup?username=${encodeURIComponent(username)}`),
   createContactRequest: (username: string) =>

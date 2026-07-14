@@ -112,6 +112,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/messages", s.handleCreateEncryptedMessage)
 	s.mux.HandleFunc("GET /api/messages", s.handleListEncryptedMessages)
 	s.mux.HandleFunc("POST /api/messages/{id}/delivered", s.handleMessageDelivered)
+	s.mux.HandleFunc("GET /api/messages/unread", s.handleUnreadCounts)
+	s.mux.HandleFunc("PUT /api/conversations/{contactID}/read", s.handleConversationRead)
 	s.mux.HandleFunc("GET /api/users/lookup", s.handleLookupUser)
 	s.mux.HandleFunc("POST /api/contacts/requests", s.handleCreateContactRequest)
 	s.mux.HandleFunc("GET /api/contacts/requests/incoming", s.handleIncomingContactRequests)

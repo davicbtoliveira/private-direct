@@ -173,6 +173,17 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS conversation_reads (
+			user_id INTEGER NOT NULL,
+			contact_id INTEGER NOT NULL,
+			last_read_sequence INTEGER NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (user_id,contact_id),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (contact_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		},
+		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (1, ?)`,
 			args: []any{now},

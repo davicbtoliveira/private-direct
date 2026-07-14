@@ -148,6 +148,61 @@ func (s *Server) handleListEncryptedMessages(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, 200, map[string]any{"messages": messages})
 }
 
+func (s *Server) handleConversationRead(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.authenticate(r)
+	if !ok {
+		writeError(w, 401, "unauthorized")
+		return
+	}
+	contactID, err := strconv.ParseInt(r.PathValue("contactID"), 10, 64)
+	if err != nil || !s.areContacts(r.Context(), user.ID, contactID) {
+		writeError(w, 403, "not_contact")
+		return
+	}
+	var body struct {
+		Sequence int64 `json:"sequence"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	var max int64
+	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(MAX(sequence),0) FROM encrypted_messages WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)`, user.ID, contactID, contactID, user.ID).Scan(&max)
+	if body.Sequence < 0 || body.Sequence > max {
+		writeError(w, 400, "invalid_read_cursor")
+		return
+	}
+	_, err = s.db.ExecContext(r.Context(), `INSERT INTO conversation_reads(user_id,contact_id,last_read_sequence,updated_at) VALUES(?,?,?,?) ON CONFLICT(user_id,contact_id) DO UPDATE SET last_read_sequence=MAX(last_read_sequence,excluded.last_read_sequence),updated_at=excluded.updated_at`, user.ID, contactID, body.Sequence, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		writeError(w, 500, "read_cursor_failed")
+		return
+	}
+	s.presence.notifyUser(user.ID, map[string]any{"type": "read_state_changed", "contact_id": contactID, "sequence": body.Sequence})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleUnreadCounts(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.authenticate(r)
+	if !ok {
+		writeError(w, 401, "unauthorized")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT sender_id,COUNT(*) FROM encrypted_messages m WHERE recipient_id=? AND sequence>COALESCE((SELECT last_read_sequence FROM conversation_reads WHERE user_id=? AND contact_id=m.sender_id),0) GROUP BY sender_id`, user.ID, user.ID)
+	if err != nil {
+		writeError(w, 500, "unread_failed")
+		return
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var id int64
+		var count int
+		if rows.Scan(&id, &count) == nil {
+			counts[strconv.FormatInt(id, 10)] = count
+		}
+	}
+	writeJSON(w, 200, map[string]any{"unread": counts})
+}
+
 func (s *Server) handleMessageDelivered(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.authenticate(r)
 	if !ok {

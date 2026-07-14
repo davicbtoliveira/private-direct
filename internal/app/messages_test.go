@@ -1,6 +1,9 @@
 package app
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,6 +52,89 @@ func TestEncryptedMessagePersistenceIsIdempotentAndOrdered(t *testing.T) {
 	decodeResponse(t, res, &body)
 	if len(body.Messages) != 1 || body.Messages[0].ID != payload["id"] || body.Messages[0].Sequence == 0 {
 		t.Fatalf("messages=%+v", body.Messages)
+	}
+}
+
+func TestUnreadCursorSynchronizesWithoutContactReceipt(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	registerUser(t, httpSrv.URL, "ia", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "ib", "bob", "secret-password")
+	_, _ = srv.db.Exec("INSERT INTO contacts(user_low_id,user_high_id,created_at) VALUES(1,2,'now')")
+	alice := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	bob := loginUser(t, httpSrv.URL, "bob", "secret-password")
+	res := postJSON(t, httpSrv.URL+"/api/messages", bearerHeaders(alice), map[string]any{"id": "550e8400-e29b-41d4-a716-446655440000", "to": 2, "ciphertext": map[string]string{"body": "opaque"}})
+	assertStatus(t, res, http.StatusCreated)
+	res.Body.Close()
+	res = getJSON(t, httpSrv.URL+"/api/messages/unread", bearerHeaders(bob))
+	assertStatus(t, res, http.StatusOK)
+	var before struct {
+		Unread map[string]int `json:"unread"`
+	}
+	decodeResponse(t, res, &before)
+	if before.Unread["1"] != 1 {
+		t.Fatalf("unread=%v", before.Unread)
+	}
+	data, _ := json.Marshal(map[string]int{"sequence": 1})
+	req, _ := http.NewRequest(http.MethodPut, httpSrv.URL+"/api/conversations/1/read", bytes.NewReader(data))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+bob)
+	res, _ = http.DefaultClient.Do(req)
+	assertStatus(t, res, http.StatusNoContent)
+	res.Body.Close()
+	res = getJSON(t, httpSrv.URL+"/api/messages/unread", bearerHeaders(bob))
+	assertStatus(t, res, http.StatusOK)
+	var after struct {
+		Unread map[string]int `json:"unread"`
+	}
+	decodeResponse(t, res, &after)
+	if after.Unread["1"] != 0 {
+		t.Fatalf("unread after read=%v", after.Unread)
+	}
+	var deliveries int
+	_ = srv.db.QueryRow("SELECT COUNT(*) FROM message_deliveries").Scan(&deliveries)
+	if deliveries != 0 {
+		t.Fatalf("read cursor created contact-visible receipt")
+	}
+}
+
+func TestEncryptedHistoryPaginatesByCanonicalSequence(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	registerUser(t, httpSrv.URL, "ia", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "ib", "bob", "secret-password")
+	_, _ = srv.db.Exec("INSERT INTO contacts(user_low_id,user_high_id,created_at) VALUES(1,2,'now')")
+	for i := 1; i <= 51; i++ {
+		_, err := srv.db.Exec(`INSERT INTO encrypted_messages(message_id,sender_id,recipient_id,ciphertext,created_at) VALUES(?,?,?,?,?)`, fmt.Sprintf("00000000-0000-4000-8000-%012d", i), 1, 2, `{"body":"opaque"}`, fmt.Sprintf("time-%d", 52-i))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	token := loginUser(t, httpSrv.URL, "bob", "secret-password")
+	res := getJSON(t, httpSrv.URL+"/api/messages?contact_id=1&limit=50", bearerHeaders(token))
+	assertStatus(t, res, http.StatusOK)
+	var first struct {
+		Messages []struct {
+			ID       string `json:"id"`
+			Sequence int64  `json:"sequence"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, res, &first)
+	if len(first.Messages) != 50 || first.Messages[0].Sequence != 51 || first.Messages[49].Sequence != 2 {
+		t.Fatalf("first page bounds=%+v", first.Messages)
+	}
+	res = getJSON(t, httpSrv.URL+"/api/messages?contact_id=1&limit=50&before=2", bearerHeaders(token))
+	assertStatus(t, res, http.StatusOK)
+	var second struct {
+		Messages []struct {
+			Sequence int64 `json:"sequence"`
+		} `json:"messages"`
+	}
+	decodeResponse(t, res, &second)
+	if len(second.Messages) != 1 || second.Messages[0].Sequence != 1 {
+		t.Fatalf("second page=%+v", second.Messages)
 	}
 }
 
