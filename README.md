@@ -48,6 +48,9 @@ contacts register through the UI.
 | `PRIVATE_DIRECT_MESSAGE_QUOTA_BYTES` | — | Per-user ciphertext quota (default 100 MiB) |
 | `PRIVATE_DIRECT_MESSAGE_RATE_PER_MINUTE` | — | Sustained message rate (default 120/min) |
 | `PRIVATE_DIRECT_MESSAGE_RATE_BURST` | — | Message rate burst (default 30) |
+| `PRIVATE_DIRECT_BACKUP_DIR` | — | Enables daily encrypted backups in this directory |
+| `PRIVATE_DIRECT_BACKUP_AGE_RECIPIENT` | With backup | Public X25519 `age` recipient |
+| `PRIVATE_DIRECT_BACKUP_TIMEZONE` | — | IANA timezone for 03:00 schedule (default `Local`) |
 
 ### Production build
 
@@ -58,6 +61,12 @@ CGO_ENABLED=0 go build -o privatedirect ./cmd/privatedirect
 
 The single `privatedirect` binary contains the API, the WebSocket server,
 and the built SPA. No Node.js or Bun runtime is needed in production.
+
+Restore an encrypted backup while the server is stopped:
+
+```sh
+privatedirect restore-backup backup.sqlite.age restored.db age-identity.txt
+```
 
 ### Creating invite codes
 

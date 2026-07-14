@@ -15,6 +15,15 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "restore-backup" {
+		if len(os.Args) != 5 {
+			log.Fatal("usage: privatedirect restore-backup <backup.age> <database.db> <age-identity.txt>")
+		}
+		if err := app.RestoreBackup(os.Args[2], os.Args[3], os.Args[4]); err != nil {
+			log.Fatalf("restore backup: %v", err)
+		}
+		return
+	}
 	cfg := app.Config{
 		Addr:                 envOrDefault("PRIVATE_DIRECT_ADDR", ":8080"),
 		DatabasePath:         envOrDefault("PRIVATE_DIRECT_DB", "private-direct.db"),
@@ -24,6 +33,9 @@ func main() {
 		MessageQuotaBytes:    envInt64("PRIVATE_DIRECT_MESSAGE_QUOTA_BYTES", 100*1024*1024),
 		MessageRatePerMinute: int(envInt64("PRIVATE_DIRECT_MESSAGE_RATE_PER_MINUTE", 120)),
 		MessageRateBurst:     int(envInt64("PRIVATE_DIRECT_MESSAGE_RATE_BURST", 30)),
+		BackupDirectory:      os.Getenv("PRIVATE_DIRECT_BACKUP_DIR"),
+		BackupAgeRecipient:   os.Getenv("PRIVATE_DIRECT_BACKUP_AGE_RECIPIENT"),
+		BackupTimezone:       envOrDefault("PRIVATE_DIRECT_BACKUP_TIMEZONE", "Local"),
 		STUNServers:          splitCSV(os.Getenv("PRIVATE_DIRECT_STUN_URLS")),
 		TURNServers: []app.ICEServer{
 			{

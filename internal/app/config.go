@@ -11,6 +11,9 @@ type Config struct {
 	MessageQuotaBytes    int64
 	MessageRatePerMinute int
 	MessageRateBurst     int
+	BackupDirectory      string
+	BackupAgeRecipient   string
+	BackupTimezone       string
 	STUNServers          []string
 	TURNServers          []ICEServer
 }

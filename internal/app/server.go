@@ -23,6 +23,7 @@ type Server struct {
 	httpClient   *http.Client
 	rateMu       sync.Mutex
 	messageRates map[int64]*messageRate
+	backup       *backupManager
 }
 
 func NewServer(cfg Config) (*Server, error) {
@@ -57,6 +58,14 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("embed spa: %w", err)
 	}
 	s.routes()
+	if cfg.BackupDirectory != "" {
+		s.backup, err = newBackupManager(s)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		s.backup.start()
+	}
 	return s, nil
 }
 
@@ -71,6 +80,9 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) Close() error {
+	if s.backup != nil {
+		s.backup.close()
+	}
 	if s.db == nil {
 		return nil
 	}
@@ -79,6 +91,7 @@ func (s *Server) Close() error {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+	s.mux.HandleFunc("GET /api/operator/backup/health", s.handleBackupHealth)
 	s.mux.HandleFunc("POST /api/operator/invites", s.handleCreateInvite)
 	s.mux.HandleFunc("POST /api/register", s.handleRegister)
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
