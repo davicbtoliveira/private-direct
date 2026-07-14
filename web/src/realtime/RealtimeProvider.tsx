@@ -57,6 +57,9 @@ export default function RealtimeProvider() {
   const wsRef = useRef<WebSocket | null>(null);
   const peerMessageHandlerRef = useRef<((userId: number, data: string) => void) | null>(null);
   const presenceRef = useRef<Record<number, PresenceState>>({});
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const isLeaderRef = useRef(false);
+  const [isLeader,setIsLeader]=useState(false);
 
   const setConnectionState = useCallback((next: RealtimeState) => {
     realtimeStateRef.current = next;
@@ -123,15 +126,18 @@ export default function RealtimeProvider() {
 
   const sendPeerSignal = useCallback((toUserId: number, signalType: string, payload: Record<string, unknown>) => {
     const ws = wsRef.current;
+    if (!isLeaderRef.current) { channelRef.current?.postMessage({kind:"signal",toUserId,signalType,payload}); return; }
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: "signal", to_user_id: toUserId, signal_type: signalType, payload }));
   }, []);
 
   const connectPeer = useCallback((userId: number) => {
+    if(!isLeaderRef.current){channelRef.current?.postMessage({kind:"connect_peer",userId});return}
     peerManagerRef.current?.connect(userId);
   }, []);
 
   const sendToPeer = useCallback((userId: number, data: string): boolean => {
+    if(!isLeaderRef.current){channelRef.current?.postMessage({kind:"peer_send",userId,data});return true}
     return peerManagerRef.current?.sendMessage(userId, data) ?? false;
   }, []);
 
@@ -153,6 +159,7 @@ export default function RealtimeProvider() {
 
   useEffect(() => {
     if (!session.user) return;
+    if (!isLeader) return;
     let cancelled = false;
 
     const mgr = new PeerManager();
@@ -165,6 +172,7 @@ export default function RealtimeProvider() {
       },
       (userId, data) => {
         peerMessageHandlerRef.current?.(userId, data);
+        channelRef.current?.postMessage({kind:"peer_data",userId,data});
       },
       (userId) => presenceRef.current[userId] === "online"
     );
@@ -183,6 +191,7 @@ export default function RealtimeProvider() {
           },
           (userId, data) => {
             peerMessageHandlerRef.current?.(userId, data);
+            channelRef.current?.postMessage({kind:"peer_data",userId,data});
           },
           (userId) => presenceRef.current[userId] === "online"
         );
@@ -196,7 +205,14 @@ export default function RealtimeProvider() {
       mgr.disconnectAll();
       peerManagerRef.current = null;
     };
-  }, [sendPeerSignal, session.user]);
+  }, [isLeader, sendPeerSignal, session.user]);
+
+  useEffect(()=>{
+    if(!session.user||typeof BroadcastChannel==="undefined")return;
+    const channel=new BroadcastChannel(`private-direct-${session.user.id}`);channelRef.current=channel;
+    channel.onmessage=event=>{const message=event.data as Record<string,unknown>;if(message.kind==="peer_data"&&!isLeaderRef.current)peerMessageHandlerRef.current?.(Number(message.userId),String(message.data));if(!isLeaderRef.current&&message.kind==="mailbox")setMailboxRevision(current=>current+1);if(!isLeaderRef.current&&message.kind==="snapshot"){setConnectionState("connected");setMailboxRevision(current=>current+1)}if(isLeaderRef.current&&message.kind==="connect_peer")peerManagerRef.current?.connect(Number(message.userId));if(isLeaderRef.current&&message.kind==="peer_send")peerManagerRef.current?.sendMessage(Number(message.userId),String(message.data));if(isLeaderRef.current&&message.kind==="signal"){const ws=wsRef.current;if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:"signal",to_user_id:Number(message.toUserId),signal_type:String(message.signalType),payload:message.payload}))}};
+    return()=>{channel.close();channelRef.current=null};
+  },[session.user,setConnectionState]);
 
   useEffect(() => {
     if (!session.user) return;
@@ -205,6 +221,7 @@ export default function RealtimeProvider() {
     let replaced = false;
     let activeSocket: WebSocket | null = null;
     let retryTimer: number | null = null;
+    let releaseLeadership: (()=>void)|null=null;
 
     const markConnecting = () => {
       onlineUserIDsRef.current.clear();
@@ -287,6 +304,7 @@ export default function RealtimeProvider() {
           syncPresenceForContacts(contactsRef.current);
           setAnnouncement("Realtime connected.");
           setMailboxRevision((current) => current + 1);
+          channelRef.current?.postMessage({kind:"snapshot"});
           return;
         }
 
@@ -310,6 +328,7 @@ export default function RealtimeProvider() {
 
         if (message.type === "mailbox_changed" || message.type === "read_state_changed") {
           setMailboxRevision((current) => current + 1);
+          channelRef.current?.postMessage({kind:"mailbox"});
           return;
         }
 
@@ -351,13 +370,14 @@ export default function RealtimeProvider() {
       };
     };
 
-    setConnectionState("connecting");
-    syncPresenceForContacts(contactsRef.current);
-    setAnnouncement("Realtime connecting.");
-    connect();
+    const lead=()=>{isLeaderRef.current=true;setIsLeader(true);connect()};
+    setConnectionState("connecting"); syncPresenceForContacts(contactsRef.current); setAnnouncement("Realtime connecting.");
+    if(navigator.locks){void navigator.locks.request(`private-direct-realtime-${session.user.id}`,async()=>{if(stopped)return;lead();await new Promise<void>(resolve=>{releaseLeadership=resolve});isLeaderRef.current=false;setIsLeader(false)})}else lead();
 
     return () => {
       stopped = true;
+      releaseLeadership?.();
+      isLeaderRef.current=false;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       activeSocket?.close(1000, "workspace_closed");
       wsRef.current = null;

@@ -14,6 +14,7 @@ import DevicesSheet from "../e2ee/DevicesSheet";
 import Sheet from "../components/Sheet";
 import securityStyles from "../e2ee/SecuritySheets.module.css";
 import { identityFingerprint, knownIdentity, trustIdentity } from "../e2ee/identity";
+import { loadDraft, saveDraft } from "../e2ee/draftStore";
 
 type DeliveryState = "queued" | "sending" | "sent" | "delivered" | "not-delivered";
 
@@ -135,6 +136,7 @@ export default function ChatPage() {
   const [identityOpen,setIdentityOpen]=useState(false);
   const [fingerprint,setFingerprint]=useState("");
   const [identityChanged,setIdentityChanged]=useState(false);
+  const [ephemeralStorage,setEphemeralStorage]=useState(false);
 
   // Chat state: per-contact transcripts, drafts, unread, deduplication
   const [composer, setComposer] = useState("");
@@ -162,8 +164,11 @@ export default function ChatPage() {
   // Load draft when changing conversations
   useEffect(() => {
     if (!username) return;
-    setComposer(draftsRef.current[username] ?? "");
-  }, [username]);
+    if(draftsRef.current[username]!==undefined){setComposer(draftsRef.current[username]);return}
+    if(me)void loadDraft(me.username,username).then(value=>{draftsRef.current[username]=value;setComposer(value)}).catch(()=>setEphemeralStorage(true));
+  }, [me,username]);
+
+  useEffect(()=>{void navigator.storage?.persisted().then(persisted=>setEphemeralStorage(!persisted)).catch(()=>setEphemeralStorage(true))},[]);
 
   useEffect(() => {
     if (!contact || !me || !username) return;
@@ -226,7 +231,8 @@ export default function ChatPage() {
     if (codePointLength(value) > COMPOSER_LIMIT) return;
     setComposer(value);
     if (username) draftsRef.current[username] = value;
-  }, [username]);
+    if(username&&me)void saveDraft(me.username,username,value).catch(()=>setEphemeralStorage(true));
+  }, [me,username]);
   useEffect(() => {
     if (!contact || !username || !me) return;
     const contactPresence = presence[contact.id];
@@ -427,6 +433,7 @@ export default function ChatPage() {
             {registrationWarning}
           </div>
         )}
+        {ephemeralStorage && <div className={styles.takeoverNotice} role="status">Storage may be ephemeral. Private browsing can lose this device, queue, and drafts.</div>}
         {realtimeState === "replaced" && (
           <div className={styles.takeoverNotice} role="alert">
             Messaging continued in another tab
@@ -694,7 +701,7 @@ export default function ChatPage() {
           returnFocusRef={requestsTriggerRef}
         />
       )}
-      {devicesOpen && <DevicesSheet onClose={()=>setDevicesOpen(false)} returnFocusRef={devicesTriggerRef}/>} 
+      {devicesOpen && <DevicesSheet onClose={()=>setDevicesOpen(false)} returnFocusRef={devicesTriggerRef} onRemoveCurrent={onLogout}/>} 
       {identityOpen && <Sheet title={`Verify @${username}`} onClose={()=>setIdentityOpen(false)} returnFocusRef={identityTriggerRef}><div className={securityStyles.body}><p>Compare this safety number through another trusted channel.</p><p className={securityStyles.number}>{fingerprint || "Identity unavailable"}</p>{identityChanged&&<button type="button" onClick={()=>{trustIdentity(username!,fingerprint);setIdentityChanged(false);setIdentityOpen(false)}}>I confirmed this new identity</button>}</div></Sheet>}
     </>
   );

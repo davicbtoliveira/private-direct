@@ -12,7 +12,8 @@ import {
 import { api } from "../api/client";
 import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
-import { loadMasterKey, saveMasterKey } from "./keyStore";
+import { clearMasterKeys, loadMasterKey, saveMasterKey } from "./keyStore";
+import { clearDraftStorage } from "./draftStore";
 
 const DEVICE_KEY = "private-direct-device-id";
 let session: MatrixSession | null = null;
@@ -126,6 +127,8 @@ class MatrixSession {
 
 export function rememberDevice(deviceID: string) { localStorage.setItem(DEVICE_KEY, deviceID); }
 export function hasRememberedDevice() { return localStorage.getItem(DEVICE_KEY) !== null; }
+export function rememberedDeviceID() { return localStorage.getItem(DEVICE_KEY); }
+export async function clearLocalDevice(username:string) { const id=rememberedDeviceID();localStorage.removeItem(DEVICE_KEY);session=null;clearDraftStorage();await clearMasterKeys();if(id)indexedDB.deleteDatabase(`private-direct-${username}-${id}`); }
 export async function matrixSession(username: string) { session ??= await MatrixSession.open(username); return session; }
 
 export async function recoverDevice(username: string, phrase: string) {

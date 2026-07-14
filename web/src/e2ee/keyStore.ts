@@ -31,3 +31,7 @@ export async function loadMasterKey(username: string): Promise<CryptoKey | null>
   db.close();
   return value ?? null;
 }
+
+export async function clearMasterKeys(): Promise<void> {
+  await new Promise<void>(resolve=>{const request=indexedDB.deleteDatabase(DB);request.onsuccess=()=>resolve();request.onerror=()=>resolve();request.onblocked=()=>resolve()});
+}
