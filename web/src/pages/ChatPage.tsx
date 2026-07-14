@@ -6,9 +6,11 @@ import IncomingRequestsSheet from "../contacts/IncomingRequestsSheet";
 import { useRealtime, type PresenceState } from "../realtime/realtimeContext";
 import { useSession } from "../session/sessionContext";
 import type { PeerChannelState } from "../realtime/peerManager";
+import { api } from "../api/client";
+import { matrixSession } from "../e2ee/matrixSession";
 import styles from "./ChatPage.module.css";
 
-type DeliveryState = "sending" | "delivered" | "not-delivered";
+type DeliveryState = "sending" | "sent" | "delivered" | "not-delivered";
 
 interface ChatMessage {
   id: string;
@@ -33,7 +35,6 @@ interface AckEnvelope {
 type PeerEnvelope = MessageEnvelope | AckEnvelope;
 
 const COMPOSER_LIMIT = 4000;
-const ACK_TIMEOUT_MS = 8000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const presenceLabels: Record<PresenceState, string> = {
@@ -134,6 +135,45 @@ export default function ChatPage() {
     if (!username) return;
     setComposer(draftsRef.current[username] ?? "");
   }, [username]);
+
+  useEffect(() => {
+    if (!contact || !me || !username) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cryptoSession = await matrixSession(me.username);
+        const response = await api.listMessages(contact.id);
+        const loaded: ChatMessage[] = [];
+        for (const stored of [...response.messages].reverse()) {
+          const senderUsername = stored.sender_id === me.id ? me.username : contact.username;
+          const decrypted = await cryptoSession.decrypt(
+            me.id,
+            contact.id,
+            senderUsername,
+            stored.id,
+            stored.created_at,
+            stored.ciphertext,
+          );
+          const body = decrypted.content;
+          if (typeof body.body !== "string") continue;
+          loaded.push({
+            id: stored.id,
+            direction: stored.sender_id === me.id ? "sent" : "received",
+            content: body.body,
+            delivery: "sent",
+            timestamp: typeof body.sent_at === "string" ? body.sent_at : stored.created_at,
+          });
+        }
+        if (!cancelled) {
+          transcriptsRef.current[username] = loaded;
+          rerender();
+        }
+      } catch {
+        // Keep current transcript when encrypted history is temporarily unavailable.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [contact, me, rerender, username]);
 
   const setComposerWithDraft = useCallback((value: string) => {
     if (codePointLength(value) > COMPOSER_LIMIT) return;
@@ -243,9 +283,7 @@ export default function ChatPage() {
 
   const canSend = composerValue.trim().length > 0;
 
-  const ackTimersRef = useRef<Record<string, () => void>>({});
-
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!canSend || !username || !contact) return;
     const contactId = contact.id;
     const content = composerValue;
@@ -268,39 +306,25 @@ export default function ChatPage() {
     setComposer("");
     if (username) draftsRef.current[username] = "";
 
-    const envelope = JSON.stringify({ type: "message", id, content, timestamp });
-    if (sendToPeer(contactId, envelope)) {
-      // Start ack timeout
-      const timer = window.setTimeout(() => {
-        const messages = transcriptsRef.current[username];
-        if (!messages) return;
-        const found = messages.find((m) => m.id === id);
-        if (found && found.delivery === "sending") {
-          found.delivery = "not-delivered";
-          rerender();
-        }
-      }, ACK_TIMEOUT_MS);
-
-      (window as any).__stopAckTimer = (msgId: string) => {
-        if (msgId === id) {
-          window.clearTimeout(timer);
-          delete (window as any).__stopAckTimer;
-        }
-      };
-      ackTimersRef.current[id] = () => window.clearTimeout(timer);
+    try {
+      const cryptoSession = await matrixSession(me!.username);
+      const ciphertext = await cryptoSession.encrypt(me!.id, contactId, contact.username, { body: content, sent_at: timestamp });
+      await api.createMessage(id, contactId, ciphertext);
+      message.delivery = "sent";
+    } catch {
+      message.delivery = "not-delivered";
     }
-
     rerender();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      void sendMessage();
     }
   };
 
-  const retryMessage = (msgId: string) => {
+  const retryMessage = async (msgId: string) => {
     if (!username || !contact) return;
     const messages = transcriptsRef.current[username];
     if (!messages) return;
@@ -309,24 +333,13 @@ export default function ChatPage() {
     message.delivery = "sending";
     rerender();
 
-    const envelope = JSON.stringify({
-      type: "message",
-      id: message.id,
-      content: message.content,
-      timestamp: message.timestamp,
-    });
-    if (sendToPeer(contact.id, envelope)) {
-      const timer = window.setTimeout(() => {
-        const msgs = transcriptsRef.current[username!];
-        if (!msgs) return;
-        const found = msgs.find((m) => m.id === msgId);
-        if (found && found.delivery === "sending") {
-          found.delivery = "not-delivered";
-          rerender();
-        }
-      }, ACK_TIMEOUT_MS);
-      ackTimersRef.current[msgId] = () => window.clearTimeout(timer);
-    }
+    try {
+      const cryptoSession = await matrixSession(me!.username);
+      const ciphertext = await cryptoSession.encrypt(me!.id, contact.id, contact.username, { body: message.content, sent_at: message.timestamp });
+      await api.createMessage(message.id, contact.id, ciphertext);
+      message.delivery = "sent";
+    } catch { message.delivery = "not-delivered"; }
+    rerender();
   };
 
   const handleAutoGrow = (el: HTMLTextAreaElement) => {
@@ -501,6 +514,8 @@ export default function ChatPage() {
                             <span className={styles.delivery} data-delivery={msg.delivery}>
                               {msg.delivery === "sending"
                                 ? "sending"
+                                : msg.delivery === "sent"
+                                  ? "sent"
                                 : msg.delivery === "delivered"
                                   ? "delivered"
                                   : "not delivered"}
@@ -515,7 +530,7 @@ export default function ChatPage() {
                           <button
                             type="button"
                             className={styles.retryBtn}
-                            onClick={() => retryMessage(msg.id)}
+                            onClick={() => void retryMessage(msg.id)}
                             aria-label={`Retry sending message`}
                           >
                             Try again
@@ -553,7 +568,6 @@ export default function ChatPage() {
                       onKeyDown={handleKeyDown}
                       placeholder="Type a message…"
                       rows={1}
-                      disabled={peerState === "offline"}
                       aria-label="Message"
                       style={{ height: composerHeight }}
                       ref={(el) => {
@@ -563,8 +577,8 @@ export default function ChatPage() {
                     <button
                       type="button"
                       className={styles.sendBtn}
-                      onClick={sendMessage}
-                      disabled={!canSend || peerState === "offline"}
+                      onClick={() => void sendMessage()}
+                      disabled={!canSend}
                       aria-label="Send message"
                     >
                       <Send size={18} />

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { createE2EESetup, createRecoveryPhrase } from "../e2ee/setup";
+import { rememberDevice } from "../e2ee/matrixSession";
 import { useSession } from "../session/sessionContext";
 import AuthShell from "./AuthShell";
 import styles from "./AuthShell.module.css";
@@ -28,6 +29,7 @@ export default function E2EESetupPage() {
     try {
       const payload = await createE2EESetup(username, phrase);
       await api.setupE2EE(payload);
+      rememberDevice(payload.device_id);
       markE2EEReady();
       setConfirmation("");
       navigate("/chat", { replace: true });

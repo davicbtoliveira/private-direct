@@ -73,6 +73,13 @@ export const api = {
   logout: () => request<void>("/logout", { method: "POST", body: {} }),
   setupE2EE: (body: E2EESetupPayload) =>
     request<{ e2ee_ready: true }>("/e2ee/setup", { method: "POST", body }),
+  e2eeKeysUpload: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/upload", { method: "POST", body }),
+  e2eeKeysQuery: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/query", { method: "POST", body }),
+  e2eeKeysClaim: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/claim", { method: "POST", body }),
+  e2eeToDevice: (eventType: string, txnID: string, body: Record<string, unknown>) => request<Record<string, unknown>>(`/e2ee/to-device/${encodeURIComponent(eventType)}/${encodeURIComponent(txnID)}`, { method: "POST", body }),
+  e2eeSync: (deviceID: string, since: string) => request<{ next: string; events: Record<string, unknown>[] }>(`/e2ee/sync?device_id=${encodeURIComponent(deviceID)}&since=${encodeURIComponent(since)}`),
+  createMessage: (id: string, to: number, ciphertext: Record<string, unknown>) => request<{ id: string; sequence: number; created_at: string }>("/messages", { method: "POST", body: { id, to, ciphertext } }),
+  listMessages: (contactID: number, before?: number) => request<{ messages: Array<{ id: string; sequence: number; sender_id: number; recipient_id: number; ciphertext: Record<string, unknown>; created_at: string }> }>(`/messages?contact_id=${contactID}&limit=50${before ? `&before=${before}` : ""}`),
   lookupUser: (username: string) =>
     request<LookupUser>(`/users/lookup?username=${encodeURIComponent(username)}`),
   createContactRequest: (username: string) =>

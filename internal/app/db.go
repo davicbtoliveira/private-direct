@@ -115,6 +115,42 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS e2ee_one_time_keys (
+			user_id INTEGER NOT NULL,
+			device_id TEXT NOT NULL,
+			key_id TEXT NOT NULL,
+			key_json TEXT NOT NULL,
+			PRIMARY KEY (user_id, device_id, key_id),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (device_id) REFERENCES e2ee_devices(id) ON DELETE CASCADE
+		)`,
+		},
+		{
+			query: `CREATE TABLE IF NOT EXISTS e2ee_to_device_events (
+			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+			recipient_user_id INTEGER NOT NULL,
+			recipient_device_id TEXT NOT NULL,
+			sender TEXT NOT NULL,
+			event_type TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY (recipient_user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (recipient_device_id) REFERENCES e2ee_devices(id) ON DELETE CASCADE
+		)`,
+		},
+		{
+			query: `CREATE TABLE IF NOT EXISTS encrypted_messages (
+			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+			message_id TEXT NOT NULL UNIQUE,
+			sender_id INTEGER NOT NULL,
+			recipient_id INTEGER NOT NULL,
+			ciphertext TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		},
+		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (1, ?)`,
 			args: []any{now},
@@ -137,6 +173,11 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (5, ?)`,
+			args: []any{now},
+		},
+		{
+			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+		 VALUES (6, ?)`,
 			args: []any{now},
 		},
 	}
