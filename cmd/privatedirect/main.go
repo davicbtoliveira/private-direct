@@ -15,11 +15,12 @@ import (
 
 func main() {
 	cfg := app.Config{
-		Addr:          envOrDefault("PRIVATE_DIRECT_ADDR", ":8080"),
-		DatabasePath:  envOrDefault("PRIVATE_DIRECT_DB", "private-direct.db"),
-		OperatorToken: os.Getenv("PRIVATE_DIRECT_OPERATOR_TOKEN"),
-		JWTSecret:     os.Getenv("PRIVATE_DIRECT_JWT_SECRET"),
-		STUNServers:   splitCSV(os.Getenv("PRIVATE_DIRECT_STUN_URLS")),
+		Addr:              envOrDefault("PRIVATE_DIRECT_ADDR", ":8080"),
+		DatabasePath:      envOrDefault("PRIVATE_DIRECT_DB", "private-direct.db"),
+		OperatorToken:     os.Getenv("PRIVATE_DIRECT_OPERATOR_TOKEN"),
+		JWTSecret:         os.Getenv("PRIVATE_DIRECT_JWT_SECRET"),
+		PwnedPasswordsURL: "https://api.pwnedpasswords.com/range",
+		STUNServers:       splitCSV(os.Getenv("PRIVATE_DIRECT_STUN_URLS")),
 		TURNServers: []app.ICEServer{
 			{
 				URLs:       splitCSV(os.Getenv("PRIVATE_DIRECT_TURN_URLS")),

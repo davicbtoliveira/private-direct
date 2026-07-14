@@ -3,12 +3,13 @@ package app
 import "fmt"
 
 type Config struct {
-	Addr          string
-	DatabasePath  string
-	OperatorToken string
-	JWTSecret     string
-	STUNServers   []string
-	TURNServers   []ICEServer
+	Addr              string
+	DatabasePath      string
+	OperatorToken     string
+	JWTSecret         string
+	PwnedPasswordsURL string
+	STUNServers       []string
+	TURNServers       []ICEServer
 }
 
 type ICEServer struct {

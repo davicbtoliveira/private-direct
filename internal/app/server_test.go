@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,64 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestRegistrationScreensPwnedPasswords(t *testing.T) {
+	password := "known-breached-password"
+	digest := fmt.Sprintf("%X", sha1.Sum([]byte(password)))
+	var receivedPrefix string
+	var padded string
+	hibp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPrefix = strings.TrimPrefix(r.URL.Path, "/")
+		padded = r.Header.Get("Add-Padding")
+		fmt.Fprintf(w, "%s:42\n00000000000000000000000000000000000:0\n", digest[5:])
+	}))
+	defer hibp.Close()
+
+	srv := newTestServerWithConfig(t, Config{
+		Addr: "127.0.0.1:0", DatabasePath: filepath.Join(t.TempDir(), "private-direct.db"),
+		OperatorToken: "operator-secret", JWTSecret: "test-jwt-secret",
+		STUNServers: []string{"stun:test.example"}, PwnedPasswordsURL: hibp.URL,
+	})
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	createInvite(t, httpSrv.URL, "invite-pwned")
+
+	res := postJSON(t, httpSrv.URL+"/api/register", nil, map[string]string{
+		"invite_code": "invite-pwned", "username": "alice", "password": password,
+	})
+	assertStatus(t, res, http.StatusBadRequest)
+	assertErrorCode(t, res, "password_breached")
+	if receivedPrefix != digest[:5] || padded != "true" {
+		t.Fatalf("HIBP request prefix=%q padding=%q", receivedPrefix, padded)
+	}
+}
+
+func TestRegistrationWarnsWhenPwnedPasswordCheckFails(t *testing.T) {
+	hibp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	hibpURL := hibp.URL
+	hibp.Close()
+
+	srv := newTestServerWithConfig(t, Config{
+		Addr: "127.0.0.1:0", DatabasePath: filepath.Join(t.TempDir(), "private-direct.db"),
+		OperatorToken: "operator-secret", JWTSecret: "test-jwt-secret",
+		STUNServers: []string{"stun:test.example"}, PwnedPasswordsURL: hibpURL,
+	})
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	createInvite(t, httpSrv.URL, "invite-warning")
+
+	res := postJSON(t, httpSrv.URL+"/api/register", nil, map[string]string{
+		"invite_code": "invite-warning", "username": "alice", "password": "safe-password-value",
+	})
+	assertStatus(t, res, http.StatusCreated)
+	var body map[string]any
+	decodeResponse(t, res, &body)
+	if body["warning"] != "password_breach_check_unavailable" {
+		t.Fatalf("warning = %v", body["warning"])
+	}
+}
 
 func TestHealth(t *testing.T) {
 	srv := newTestServer(t)

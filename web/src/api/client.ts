@@ -4,6 +4,7 @@ import type {
   LookupUser,
   ContactRequestResponse,
   IceServersResponse,
+  RegistrationResponse,
 } from "./types";
 
 const BASE = "/api";
@@ -63,7 +64,7 @@ export const api = {
   login: (username: string, password: string) =>
     request<SessionResponse>("/login", { method: "POST", body: { username, password } }),
   register: (inviteCode: string, username: string, password: string) =>
-    request<{ id: number; username: string }>("/register", {
+    request<RegistrationResponse>("/register", {
       method: "POST",
       body: { invite_code: inviteCode, username, password },
     }),

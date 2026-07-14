@@ -1,11 +1,17 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as client from "../api/client";
 import LoginPage from "../pages/LoginPage";
 import RegisterPage from "../pages/RegisterPage";
 import SessionProvider from "./SessionProvider";
+
+function Workspace() {
+  const location = useLocation();
+  const warning = (location.state as { warning?: string } | null)?.warning;
+  return <div>{warning ?? "workspace"}</div>;
+}
 
 function setup() {
   return render(
@@ -14,7 +20,7 @@ function setup() {
         <Routes>
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/chat" element={<div>workspace</div>} />
+          <Route path="/chat" element={<Workspace />} />
         </Routes>
       </SessionProvider>
     </MemoryRouter>
@@ -219,5 +225,40 @@ describe("registration flow", () => {
     expect(await screen.findByText("Account created. Sign in to continue.")).toBeInTheDocument();
     expect(screen.getByLabelText("Username")).toHaveValue("alice.b");
     expect(screen.getByLabelText("Password")).toHaveValue("");
+  });
+
+  it("shows a warning after registration when breach screening was unavailable", async () => {
+    vi.spyOn(client.api, "register").mockResolvedValue({
+      id: 1,
+      username: "alice.b",
+      warning: "password_breach_check_unavailable",
+    });
+    vi.spyOn(client.api, "login").mockResolvedValue({
+      access_token: "tok",
+      token_type: "Bearer",
+      expires_in: 900,
+      user: { id: 1, username: "alice.b" },
+    });
+    setup();
+    const user = await fillValidForm();
+
+    await user.click(screen.getByRole("button", { name: "Register" }));
+
+    expect(await screen.findByText(/created without that check/)).toBeInTheDocument();
+  });
+
+  it("maps a breached password to actionable guidance", async () => {
+    vi.spyOn(client.api, "register").mockRejectedValue(
+      Object.assign(new Error("password_breached"), {
+        status: 400,
+        code: "password_breached",
+      })
+    );
+    setup();
+    const user = await fillValidForm();
+
+    await user.click(screen.getByRole("button", { name: "Register" }));
+
+    expect(await screen.findByText(/has not appeared in a known breach/)).toBeInTheDocument();
   });
 });

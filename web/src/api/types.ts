@@ -33,6 +33,12 @@ export type ApiError = {
   error: string;
 };
 
+export type RegistrationResponse = {
+  id: number;
+  username: string;
+  warning?: "password_breach_check_unavailable";
+};
+
 export type SignalEvent = {
   type: "signal";
   from: User;

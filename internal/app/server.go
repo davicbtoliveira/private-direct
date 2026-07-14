@@ -14,11 +14,12 @@ import (
 )
 
 type Server struct {
-	cfg      Config
-	db       *sql.DB
-	mux      *http.ServeMux
-	presence *presenceHub
-	dist     fs.FS
+	cfg        Config
+	db         *sql.DB
+	mux        *http.ServeMux
+	presence   *presenceHub
+	dist       fs.FS
+	httpClient *http.Client
 }
 
 func NewServer(cfg Config) (*Server, error) {
@@ -32,10 +33,11 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		cfg:      cfg,
-		db:       db,
-		mux:      http.NewServeMux(),
-		presence: newPresenceHub(),
+		cfg:        cfg,
+		db:         db,
+		mux:        http.NewServeMux(),
+		presence:   newPresenceHub(),
+		httpClient: &http.Client{Timeout: 3 * time.Second},
 	}
 	s.dist, err = fs.Sub(web.Dist, "dist")
 	if err != nil {
@@ -169,6 +171,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	breached, breachCheckAvailable := s.passwordBreached(r.Context(), req.Password)
+	if breached {
+		writeError(w, http.StatusBadRequest, "password_breached")
+		return
+	}
+
 	passwordHash, err := hashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "password_hash_failed")
@@ -235,7 +243,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"id": userID, "username": username})
+	response := map[string]any{"id": userID, "username": username}
+	if !breachCheckAvailable {
+		response["warning"] = "password_breach_check_unavailable"
+	}
+	writeJSON(w, http.StatusCreated, response)
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {

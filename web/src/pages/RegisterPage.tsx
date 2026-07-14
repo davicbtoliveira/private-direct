@@ -85,8 +85,10 @@ export default function RegisterPage() {
 
     setErrors({});
     setPending(true);
+    let breachWarning = false;
     try {
-      await api.register(canonicalInvite, canonicalUsername, password);
+      const registration = await api.register(canonicalInvite, canonicalUsername, password);
+      breachWarning = registration.warning === "password_breach_check_unavailable";
     } catch (error) {
       const code = errorCode(error);
       let apiErrors: FormErrors;
@@ -102,6 +104,8 @@ export default function RegisterPage() {
         apiErrors = { username: usernameGuidance };
       } else if (code === "invalid_password" || code === "password_required") {
         apiErrors = { password: passwordGuidance };
+      } else if (code === "password_breached") {
+        apiErrors = { password: "Choose a password that has not appeared in a known breach." };
       } else if (code === "invite_code_required") {
         apiErrors = { invite: "Enter an invite code." };
       } else {
@@ -116,7 +120,12 @@ export default function RegisterPage() {
       await login(canonicalUsername, password);
       setPassword("");
       setConfirmation("");
-      navigate("/chat", { replace: true });
+      navigate("/chat", {
+        replace: true,
+        state: breachWarning
+          ? { warning: "Password breach check was unavailable. Your account was created without that check." }
+          : undefined,
+      });
     } catch {
       setPassword("");
       setConfirmation("");

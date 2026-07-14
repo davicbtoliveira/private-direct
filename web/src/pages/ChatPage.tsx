@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Bell, LogOut, Plus, RefreshCw, Send } from "lucide-react";
 import AddContactSheet from "../contacts/AddContactSheet";
 import IncomingRequestsSheet from "../contacts/IncomingRequestsSheet";
@@ -103,9 +103,11 @@ export default function ChatPage() {
     retryPeer,
   } = useRealtime();
   const navigate = useNavigate();
+  const location = useLocation();
   const me = state.user;
   const [addOpen, setAddOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
+  const registrationWarning = (location.state as { warning?: string } | null)?.warning;
   const addTriggerRef = useRef<HTMLButtonElement>(null);
   const requestsTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -339,6 +341,11 @@ export default function ChatPage() {
   return (
     <>
       <div className={styles.workspaceFrame}>
+        {registrationWarning && (
+          <div className={styles.takeoverNotice} role="alert">
+            {registrationWarning}
+          </div>
+        )}
         {realtimeState === "replaced" && (
           <div className={styles.takeoverNotice} role="alert">
             Messaging continued in another tab
