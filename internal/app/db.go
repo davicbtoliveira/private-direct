@@ -184,6 +184,19 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS message_tombstones (
+			message_id TEXT NOT NULL,
+			actor_id INTEGER NOT NULL,
+			other_user_id INTEGER NOT NULL,
+			scope TEXT NOT NULL CHECK(scope IN ('self','both')),
+			device_id TEXT NOT NULL,
+			signature TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			PRIMARY KEY(message_id,actor_id,scope),
+			FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		},
+		{
 			query: `INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 		 VALUES (1, ?)`,
 			args: []any{now},

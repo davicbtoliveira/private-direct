@@ -202,8 +202,9 @@ export default function ChatPage() {
         }
         if (!cancelled) {
           const existing = transcriptsRef.current[username] ?? [];
+          const deleted=new Set(response.deleted??[]);
           const merged = new Map(existing.map(message=>[message.id,message])); loaded.forEach(message=>merged.set(message.id,message));
-          transcriptsRef.current[username] = [...merged.values()].sort((a,b)=>a.sequence-b.sequence);
+          transcriptsRef.current[username] = [...merged.values()].filter(message=>!deleted.has(message.id)).sort((a,b)=>a.sequence-b.sequence);
           if(loaded.length){earliestRef.current[username]=Math.min(...loaded.map(message=>message.sequence));hasOlderRef.current[username]=response.messages.length===50;void api.markConversationRead(contact.id,Math.max(...loaded.map(message=>message.sequence))).catch(()=>undefined)}
           rerender();
         }
@@ -219,7 +220,7 @@ export default function ChatPage() {
   const loadOlder = async () => {
     if(!contact||!me||!username||loadingOlderRef.current||!hasOlderRef.current[username])return;
     loadingOlderRef.current=true;
-    try{const response=await api.listMessages(contact.id,earliestRef.current[username]);const cryptoSession=await matrixSession(me.username);const older:ChatMessage[]=[];for(const stored of [...response.messages].reverse()){const decrypted=await cryptoSession.decrypt(me.id,contact.id,stored.sender_id===me.id?me.username:contact.username,stored.id,stored.created_at,stored.ciphertext);if(typeof decrypted.content.body!=="string")continue;older.push({id:stored.id,sequence:stored.sequence,direction:stored.sender_id===me.id?"sent":"received",content:decrypted.content.body,delivery:stored.sender_id===me.id&&stored.delivered?"delivered":"sent",timestamp:typeof decrypted.content.sent_at==="string"?decrypted.content.sent_at:stored.created_at})}const existing=transcriptsRef.current[username]??[];const ids=new Set(existing.map(message=>message.id));transcriptsRef.current[username]=[...older.filter(message=>!ids.has(message.id)),...existing].sort((a,b)=>a.sequence-b.sequence);if(older.length)earliestRef.current[username]=Math.min(...older.map(message=>message.sequence));hasOlderRef.current[username]=response.messages.length===50;rerender()}finally{loadingOlderRef.current=false}
+    try{const response=await api.listMessages(contact.id,earliestRef.current[username]);const cryptoSession=await matrixSession(me.username);const older:ChatMessage[]=[];for(const stored of [...response.messages].reverse()){const decrypted=await cryptoSession.decrypt(me.id,contact.id,stored.sender_id===me.id?me.username:contact.username,stored.id,stored.created_at,stored.ciphertext);if(typeof decrypted.content.body!=="string")continue;older.push({id:stored.id,sequence:stored.sequence,direction:stored.sender_id===me.id?"sent":"received",content:decrypted.content.body,delivery:stored.sender_id===me.id&&stored.delivered?"delivered":"sent",timestamp:typeof decrypted.content.sent_at==="string"?decrypted.content.sent_at:stored.created_at})}const deleted=new Set(response.deleted??[]);const existing=(transcriptsRef.current[username]??[]).filter(message=>!deleted.has(message.id));const ids=new Set(existing.map(message=>message.id));transcriptsRef.current[username]=[...older.filter(message=>!ids.has(message.id)&&!deleted.has(message.id)),...existing].sort((a,b)=>a.sequence-b.sequence);if(older.length)earliestRef.current[username]=Math.min(...older.map(message=>message.sequence));hasOlderRef.current[username]=response.messages.length===50;rerender()}finally{loadingOlderRef.current=false}
   };
 
   useEffect(() => {
@@ -415,6 +416,8 @@ export default function ChatPage() {
     } catch { message.delivery = "not-delivered"; }
     rerender();
   };
+
+  const deleteMessage=async(messageID:string,scope:"self"|"both")=>{if(!username||!me)return;const warning=scope==="both"?"Delete for both? Revoked devices and operator backups may still retain ciphertext.":"Delete from all your authorized devices?";if(!confirm(warning))return;try{const createdAt=new Date().toISOString();const signed=await (await matrixSession(me.username)).signTombstone(messageID,scope,createdAt);await api.deleteMessage(messageID,{scope,...signed});transcriptsRef.current[username]=(transcriptsRef.current[username]??[]).filter(message=>message.id!==messageID);rerender()}catch{/* Keep message if signed deletion fails. */}};
 
   const handleAutoGrow = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";
@@ -624,6 +627,7 @@ export default function ChatPage() {
                             Try again
                           </button>
                         )}
+                        <span className={styles.deleteActions}><button type="button" onClick={()=>void deleteMessage(msg.id,"self")}>Delete for me</button><button type="button" onClick={()=>void deleteMessage(msg.id,"both")}>Delete for both</button></span>
                       </div>
                     </div>
                   ))}

@@ -2,6 +2,9 @@ package app
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -135,6 +138,47 @@ func TestEncryptedHistoryPaginatesByCanonicalSequence(t *testing.T) {
 	decodeResponse(t, res, &second)
 	if len(second.Messages) != 1 || second.Messages[0].Sequence != 1 {
 		t.Fatalf("second page=%+v", second.Messages)
+	}
+}
+
+func TestSignedTombstoneDeletesForBothAndPreventsRestore(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	registerUser(t, httpSrv.URL, "ia", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "ib", "bob", "secret-password")
+	_, _ = srv.db.Exec("INSERT INTO contacts(user_low_id,user_high_id,created_at) VALUES(1,2,'now')")
+	public, private, _ := ed25519.GenerateKey(rand.Reader)
+	keys, _ := json.Marshal(map[string]any{"keys": map[string]string{"ed25519:alice-device": base64.RawStdEncoding.EncodeToString(public)}})
+	_, _ = srv.db.Exec(`INSERT INTO e2ee_devices(id,user_id,public_keys,created_at,last_seen_at) VALUES('alice-device',1,?,'now','now')`, string(keys))
+	alice := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	bob := loginUser(t, httpSrv.URL, "bob", "secret-password")
+	id := "550e8400-e29b-41d4-a716-446655440000"
+	payload := map[string]any{"id": id, "to": 2, "ciphertext": map[string]string{"body": "opaque"}}
+	res := postJSON(t, httpSrv.URL+"/api/messages", bearerHeaders(alice), payload)
+	assertStatus(t, res, http.StatusCreated)
+	res.Body.Close()
+	created := "2026-07-14T12:00:00Z"
+	signature := base64.RawStdEncoding.EncodeToString(ed25519.Sign(private, []byte(id+"|both|"+created)))
+	data, _ := json.Marshal(map[string]string{"scope": "both", "device_id": "alice-device", "created_at": created, "signature": signature})
+	req, _ := http.NewRequest(http.MethodDelete, httpSrv.URL+"/api/messages/"+id, bytes.NewReader(data))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+alice)
+	res, _ = http.DefaultClient.Do(req)
+	assertStatus(t, res, http.StatusNoContent)
+	res.Body.Close()
+	res = postJSON(t, httpSrv.URL+"/api/messages", bearerHeaders(alice), payload)
+	assertStatus(t, res, http.StatusGone)
+	assertErrorCode(t, res, "message_deleted")
+	res = getJSON(t, httpSrv.URL+"/api/messages?contact_id=1", bearerHeaders(bob))
+	assertStatus(t, res, http.StatusOK)
+	var result struct {
+		Messages []any    `json:"messages"`
+		Deleted  []string `json:"deleted"`
+	}
+	decodeResponse(t, res, &result)
+	if len(result.Messages) != 0 || len(result.Deleted) != 1 || result.Deleted[0] != id {
+		t.Fatalf("result=%+v", result)
 	}
 }
 

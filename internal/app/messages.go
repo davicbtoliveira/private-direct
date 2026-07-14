@@ -1,6 +1,8 @@
 package app
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -54,6 +56,12 @@ func (s *Server) handleCreateEncryptedMessage(w http.ResponseWriter, r *http.Req
 	}
 	if _, err := uuid.Parse(body.ID); err != nil || body.To <= 0 || len(body.Ciphertext) == 0 || len(body.Ciphertext) > maxEncryptedEnvelopeBytes || !json.Valid(body.Ciphertext) {
 		writeError(w, 400, "invalid_message")
+		return
+	}
+	var deleted int
+	_ = s.db.QueryRowContext(r.Context(), `SELECT 1 FROM message_tombstones WHERE message_id=? AND scope='both' LIMIT 1`, body.ID).Scan(&deleted)
+	if deleted == 1 {
+		writeError(w, http.StatusGone, "message_deleted")
 		return
 	}
 	var existingSender, existingSequence int64
@@ -117,8 +125,8 @@ func (s *Server) handleListEncryptedMessages(w http.ResponseWriter, r *http.Requ
 	if limit <= 0 || limit > 50 {
 		limit = 50
 	}
-	query := `SELECT sequence,message_id,sender_id,recipient_id,ciphertext,created_at,EXISTS(SELECT 1 FROM message_deliveries WHERE message_deliveries.message_id=encrypted_messages.message_id) FROM encrypted_messages WHERE ((sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?))`
-	args := []any{user.ID, contactID, contactID, user.ID}
+	query := `SELECT sequence,message_id,sender_id,recipient_id,ciphertext,created_at,EXISTS(SELECT 1 FROM message_deliveries WHERE message_deliveries.message_id=encrypted_messages.message_id) FROM encrypted_messages WHERE ((sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)) AND NOT EXISTS(SELECT 1 FROM message_tombstones t WHERE t.message_id=encrypted_messages.message_id AND (t.scope='both' OR (t.scope='self' AND t.actor_id=?)))`
+	args := []any{user.ID, contactID, contactID, user.ID, user.ID}
 	if before > 0 {
 		query += " AND sequence < ?"
 		args = append(args, before)
@@ -145,7 +153,91 @@ func (s *Server) handleListEncryptedMessages(w http.ResponseWriter, r *http.Requ
 		}
 		messages = append(messages, map[string]any{"sequence": seq, "id": id, "sender_id": sender, "recipient_id": recipient, "ciphertext": raw, "created_at": created, "delivered": delivered})
 	}
-	writeJSON(w, 200, map[string]any{"messages": messages})
+	deleted := []string{}
+	tombstones, _ := s.db.QueryContext(r.Context(), `SELECT DISTINCT message_id FROM message_tombstones WHERE ((actor_id=? AND other_user_id=?) OR (actor_id=? AND other_user_id=?)) AND (scope='both' OR actor_id=?)`, user.ID, contactID, contactID, user.ID, user.ID)
+	if tombstones != nil {
+		defer tombstones.Close()
+		for tombstones.Next() {
+			var id string
+			if tombstones.Scan(&id) == nil {
+				deleted = append(deleted, id)
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"messages": messages, "deleted": deleted})
+}
+
+func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.authenticate(r)
+	if !ok {
+		writeError(w, 401, "unauthorized")
+		return
+	}
+	id := r.PathValue("id")
+	var body struct {
+		Scope     string `json:"scope"`
+		DeviceID  string `json:"device_id"`
+		CreatedAt string `json:"created_at"`
+		Signature string `json:"signature"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if body.Scope != "self" && body.Scope != "both" {
+		writeError(w, 400, "invalid_delete_scope")
+		return
+	}
+	var sender, recipient int64
+	if s.db.QueryRowContext(r.Context(), `SELECT sender_id,recipient_id FROM encrypted_messages WHERE message_id=?`, id).Scan(&sender, &recipient) != nil {
+		if s.db.QueryRowContext(r.Context(), `SELECT actor_id,other_user_id FROM message_tombstones WHERE message_id=? AND scope='both' LIMIT 1`, id).Scan(&sender, &recipient) != nil {
+			writeError(w, 404, "message_not_found")
+			return
+		}
+	}
+	if user.ID != sender && user.ID != recipient {
+		writeError(w, 403, "not_participant")
+		return
+	}
+	other := sender
+	if other == user.ID {
+		other = recipient
+	}
+	var raw string
+	if s.db.QueryRowContext(r.Context(), `SELECT public_keys FROM e2ee_devices WHERE id=? AND user_id=? AND revoked_at IS NULL`, body.DeviceID, user.ID).Scan(&raw) != nil {
+		writeError(w, 403, "unknown_device")
+		return
+	}
+	var keys struct {
+		Keys map[string]string `json:"keys"`
+	}
+	if json.Unmarshal([]byte(raw), &keys) != nil {
+		writeError(w, 400, "invalid_device_key")
+		return
+	}
+	publicRaw, err := base64.RawStdEncoding.DecodeString(keys.Keys["ed25519:"+body.DeviceID])
+	if err != nil {
+		publicRaw, err = base64.StdEncoding.DecodeString(keys.Keys["ed25519:"+body.DeviceID])
+	}
+	signature, err2 := base64.RawStdEncoding.DecodeString(body.Signature)
+	if err2 != nil {
+		signature, err2 = base64.StdEncoding.DecodeString(body.Signature)
+	}
+	signed := id + "|" + body.Scope + "|" + body.CreatedAt
+	if err != nil || err2 != nil || len(publicRaw) != ed25519.PublicKeySize || !ed25519.Verify(ed25519.PublicKey(publicRaw), []byte(signed), signature) {
+		writeError(w, 403, "invalid_tombstone_signature")
+		return
+	}
+	_, err = s.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO message_tombstones(message_id,actor_id,other_user_id,scope,device_id,signature,created_at) VALUES(?,?,?,?,?,?,?)`, id, user.ID, other, body.Scope, body.DeviceID, body.Signature, body.CreatedAt)
+	if err != nil {
+		writeError(w, 500, "delete_failed")
+		return
+	}
+	if body.Scope == "both" {
+		_, _ = s.db.ExecContext(r.Context(), `DELETE FROM encrypted_messages WHERE message_id=?`, id)
+		s.presence.notifyUser(other, map[string]any{"type": "mailbox_changed"})
+	}
+	s.presence.notifyUser(user.ID, map[string]any{"type": "mailbox_changed"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleConversationRead(w http.ResponseWriter, r *http.Request) {

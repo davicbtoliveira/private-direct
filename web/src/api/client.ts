@@ -85,10 +85,11 @@ export const api = {
   e2eeToDevice: (eventType: string, txnID: string, body: Record<string, unknown>) => request<Record<string, unknown>>(`/e2ee/to-device/${encodeURIComponent(eventType)}/${encodeURIComponent(txnID)}`, { method: "POST", body }),
   e2eeSync: (deviceID: string, since: string) => request<{ next: string; events: Record<string, unknown>[] }>(`/e2ee/sync?device_id=${encodeURIComponent(deviceID)}&since=${encodeURIComponent(since)}`),
   createMessage: (id: string, to: number, ciphertext: Record<string, unknown>) => request<{ id: string; sequence: number; created_at: string }>("/messages", { method: "POST", body: { id, to, ciphertext } }),
-  listMessages: (contactID: number, before?: number) => request<{ messages: Array<{ id: string; sequence: number; sender_id: number; recipient_id: number; ciphertext: Record<string, unknown>; created_at: string; delivered: boolean }> }>(`/messages?contact_id=${contactID}&limit=50${before ? `&before=${before}` : ""}`),
+  listMessages: (contactID: number, before?: number) => request<{ messages: Array<{ id: string; sequence: number; sender_id: number; recipient_id: number; ciphertext: Record<string, unknown>; created_at: string; delivered: boolean }>; deleted?: string[] }>(`/messages?contact_id=${contactID}&limit=50${before ? `&before=${before}` : ""}`),
   markMessageDelivered: (id: string) => request<void>(`/messages/${encodeURIComponent(id)}/delivered`, { method: "POST", body: {} }),
   unreadMessages: () => request<{ unread: Record<string, number> }>("/messages/unread"),
   markConversationRead: (contactID: number, sequence: number) => request<void>(`/conversations/${contactID}/read`, { method: "PUT", body: { sequence } }),
+  deleteMessage: (id:string,body:{scope:"self"|"both";device_id:string;created_at:string;signature:string})=>request<void>(`/messages/${encodeURIComponent(id)}`,{method:"DELETE",body}),
   lookupUser: (username: string) =>
     request<LookupUser>(`/users/lookup?username=${encodeURIComponent(username)}`),
   createContactRequest: (username: string) =>

@@ -255,6 +255,8 @@
 .identityBtn { display: inline-flex; align-items: center; gap: .35rem; background: none; border: 0; color: var(--amber); font-size: .75rem; }
 .identityWarning { padding: .65rem .85rem; background: rgba(239,106,91,.12); color: var(--fault); font-size: .875rem; }
 .loadOlder { align-self: center; background: none; border: 0; color: var(--amber); padding: .5rem; }
+.deleteActions { display: flex; gap: .5rem; margin-top: .35rem; }
+.deleteActions button { background: none; border: 0; padding: 0; color: var(--text-muted); font-size: .65rem; }
 
 .conversationBody {
   flex: 1;

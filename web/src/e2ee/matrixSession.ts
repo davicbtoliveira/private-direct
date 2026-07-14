@@ -123,6 +123,7 @@ class MatrixSession {
   }
 
   async rotateFutureKeys() { for (const id of this.rooms) await this.machine.invalidateGroupSession(new RoomId(id)); }
+  async signTombstone(messageID:string,scope:"self"|"both",createdAt:string){const signed=`${messageID}|${scope}|${createdAt}`;const signatures=await this.machine.sign(signed);const raw=JSON.parse(signatures.asJSON()) as Record<string,Record<string,string>>;const signature=raw[`@${this.username}:private-direct`]?.[`ed25519:${this.deviceID}`];if(!signature)throw new Error("tombstone_signature_unavailable");return{device_id:this.deviceID,created_at:createdAt,signature}}
 }
 
 export function rememberDevice(deviceID: string) { localStorage.setItem(DEVICE_KEY, deviceID); }
