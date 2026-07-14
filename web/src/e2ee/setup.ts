@@ -2,6 +2,7 @@ import {
   DeviceId,
   OlmMachine,
   UserId,
+  initAsync,
 } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { generateMnemonic, mnemonicToSeedSync } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
@@ -31,6 +32,7 @@ export async function createE2EESetup(
   username: string,
   phrase: string,
 ): Promise<E2EESetupPayload> {
+  await initAsync();
   const deviceID = crypto.randomUUID();
   const userID = new UserId(`@${username}:private-direct`);
   const machine = await OlmMachine.initialize(

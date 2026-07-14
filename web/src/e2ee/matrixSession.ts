@@ -8,6 +8,7 @@ import {
   RoomId,
   TrustRequirement,
   UserId,
+  initAsync,
 } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { api } from "../api/client";
 import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
@@ -38,6 +39,7 @@ class MatrixSession {
   private constructor(private machine: OlmMachine, private deviceID: string, private username: string) {}
 
   static async open(username: string) {
+    await initAsync();
     const deviceID = localStorage.getItem(DEVICE_KEY);
     if (!deviceID) throw new Error("e2ee_device_missing");
     const machine = await OlmMachine.initialize(matrixUser(username), new DeviceId(deviceID), `private-direct-${username}-${deviceID}`);
@@ -135,6 +137,7 @@ export async function clearLocalDevice(username:string) { const id=rememberedDev
 export async function matrixSession(username: string) { session ??= await MatrixSession.open(username); return session; }
 
 export async function recoverDevice(username: string, phrase: string) {
+  await initAsync();
   if (!validateMnemonic(phrase.trim(), wordlist)) throw new Error("invalid_recovery_phrase");
   const recovery = await api.e2eeRecovery();
   if (recovery.protocol_version !== 1) throw new Error("unsupported_protocol_version");

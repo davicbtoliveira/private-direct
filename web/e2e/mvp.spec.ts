@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 
 const OPERATOR_TOKEN = "operator-secret";
+const PASSWORD = "E2e-Only!7f2c9a48-DoNotReuse";
 
 async function createInvite(code: string) {
   const res = await fetch("http://127.0.0.1:8080/api/operator/invites", {
@@ -21,13 +22,18 @@ async function register(page: Page, inviteCode: string, username: string, passwo
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByLabel("Confirm password").fill(password);
   await page.getByRole("button", { name: "Register" }).click();
+  await page.waitForURL("/setup-encryption");
+  const phrase = (await page.getByLabel("Recovery phrase", { exact: true }).textContent())?.trim();
+  expect(phrase?.split(/\s+/)).toHaveLength(24);
+  await page.getByLabel("Confirm recovery phrase").fill(phrase!);
+  await page.getByRole("button", { name: "I saved my recovery phrase" }).click();
   await page.waitForURL("/chat");
 }
 
 async function login(page: Page, username: string) {
   await page.goto("/login");
   await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password", { exact: true }).fill("secret-password");
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL("/chat");
 }
@@ -35,7 +41,7 @@ async function login(page: Page, username: string) {
 test.describe("Private Direct MVP", () => {
   test("registration and login flow", async ({ page }) => {
     await createInvite("invite-e2e-reg");
-    await register(page, "invite-e2e-reg", "e2e-alice", "secret-password");
+    await register(page, "invite-e2e-reg", "e2e-alice", PASSWORD);
 
     await expect(page.getByTestId("workspace")).toBeVisible();
     await expect(page.locator("[aria-label='Contact list']")).toBeVisible();
@@ -45,7 +51,7 @@ test.describe("Private Direct MVP", () => {
 
   test("login with existing account", async ({ page }) => {
     await createInvite("invite-e2e-login");
-    await register(page, "invite-e2e-login", "e2e-bob", "secret-password");
+    await register(page, "invite-e2e-login", "e2e-bob", PASSWORD);
 
     // Logout and login again
     await page.getByLabel("Sign out").click();
@@ -59,7 +65,7 @@ test.describe("Private Direct MVP", () => {
   test("contact request and acceptance", async ({ page }) => {
     // Alice registers
     await createInvite("invite-e2e-alice");
-    await register(page, "invite-e2e-alice", "e2e-alice-c", "secret-password");
+    await register(page, "invite-e2e-alice", "e2e-alice-c", PASSWORD);
 
     // Create Bob via API
     await createInvite("invite-e2e-bob-c");
@@ -69,7 +75,7 @@ test.describe("Private Direct MVP", () => {
       body: JSON.stringify({
         invite_code: "invite-e2e-bob-c",
         username: "e2e-bob-c",
-        password: "secret-password",
+        password: PASSWORD,
       }),
     });
     expect(res.status).toBe(201);
@@ -80,7 +86,7 @@ test.describe("Private Direct MVP", () => {
       const loginRes = await fetch("http://127.0.0.1:8080/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "e2e-bob-c", password: "secret-password" }),
+        body: JSON.stringify({ username: "e2e-bob-c", password: PASSWORD }),
       });
       const body = await loginRes.json();
       bobToken = body.access_token;
@@ -118,7 +124,7 @@ test.describe("Private Direct MVP", () => {
 
   test("contact list updates via WebSocket invalidation", async ({ page }) => {
     await createInvite("invite-e2e-realtime-a");
-    await register(page, "invite-e2e-realtime-a", "e2e-alice-rt", "secret-password");
+    await register(page, "invite-e2e-realtime-a", "e2e-alice-rt", PASSWORD);
 
     // Create Charlie via API
     await createInvite("invite-e2e-charlie");
@@ -128,7 +134,7 @@ test.describe("Private Direct MVP", () => {
       body: JSON.stringify({
         invite_code: "invite-e2e-charlie",
         username: "e2e-charlie",
-        password: "secret-password",
+        password: PASSWORD,
       }),
     });
     expect(charlieRes.status).toBe(201);
@@ -138,7 +144,7 @@ test.describe("Private Direct MVP", () => {
       const r = await fetch("http://127.0.0.1:8080/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "e2e-charlie", password: "secret-password" }),
+        body: JSON.stringify({ username: "e2e-charlie", password: PASSWORD }),
       });
       const b = await r.json();
       charlieToken = b.access_token;
@@ -161,7 +167,7 @@ test.describe("Private Direct MVP", () => {
 
   test("composer is disabled when no contact selected", async ({ page }) => {
     await createInvite("invite-e2e-compose");
-    await register(page, "invite-e2e-compose", "e2e-composer", "secret-password");
+    await register(page, "invite-e2e-compose", "e2e-composer", PASSWORD);
 
     // No contact selected - should show placeholder
     await expect(page.getByText("Select a contact")).toBeVisible();
@@ -172,7 +178,7 @@ test.describe("Private Direct MVP", () => {
 
   test("logout clears state and returns to login", async ({ page }) => {
     await createInvite("invite-e2e-logout");
-    await register(page, "invite-e2e-logout", "e2e-logout", "secret-password");
+    await register(page, "invite-e2e-logout", "e2e-logout", PASSWORD);
 
     await page.getByLabel("Sign out").click();
     await page.waitForURL("/login");

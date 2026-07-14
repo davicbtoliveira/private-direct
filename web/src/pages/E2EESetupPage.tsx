@@ -33,7 +33,8 @@ export default function E2EESetupPage() {
       markE2EEReady();
       setConfirmation("");
       navigate("/chat", { replace: true });
-    } catch {
+    } catch (cause) {
+      console.error("E2EE setup failed", cause);
       setError("Could not complete encrypted messaging setup.");
       setPending(false);
     }
