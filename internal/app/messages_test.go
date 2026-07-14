@@ -63,3 +63,34 @@ func TestEncryptedMessageRejectsNonContactAndOversizeEnvelope(t *testing.T) {
 	assertStatus(t, res, http.StatusForbidden)
 	res.Body.Close()
 }
+
+func TestEncryptedMessageEnforcesQuotaAndRateLimit(t *testing.T) {
+	tests := []struct {
+		name  string
+		quota int64
+		burst int
+		want  int
+	}{
+		{name: "quota", quota: 35, burst: 30, want: http.StatusInsufficientStorage},
+		{name: "rate", quota: 1024, burst: 1, want: http.StatusTooManyRequests},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newTestServerWithConfig(t, Config{Addr: "127.0.0.1:0", DatabasePath: t.TempDir() + "/db.sqlite", OperatorToken: "operator-secret", JWTSecret: "secret", STUNServers: []string{"stun:test"}, MessageQuotaBytes: tt.quota, MessageRatePerMinute: 1, MessageRateBurst: tt.burst})
+			httpSrv := httptest.NewServer(srv.Handler())
+			defer httpSrv.Close()
+			registerUser(t, httpSrv.URL, "ia", "alice", "secret-password")
+			registerUser(t, httpSrv.URL, "ib", "bob", "secret-password")
+			_, _ = srv.db.Exec("INSERT INTO contacts(user_low_id,user_high_id,created_at) VALUES(1,2,'now')")
+			token := loginUser(t, httpSrv.URL, "alice", "secret-password")
+			payload := map[string]any{"id": "550e8400-e29b-41d4-a716-446655440000", "to": 2, "ciphertext": map[string]string{"body": "1234567890"}}
+			res := postJSON(t, httpSrv.URL+"/api/messages", bearerHeaders(token), payload)
+			assertStatus(t, res, http.StatusCreated)
+			res.Body.Close()
+			payload["id"] = "550e8400-e29b-41d4-a716-446655440001"
+			res = postJSON(t, httpSrv.URL+"/api/messages", bearerHeaders(token), payload)
+			assertStatus(t, res, tt.want)
+			res.Body.Close()
+		})
+	}
+}

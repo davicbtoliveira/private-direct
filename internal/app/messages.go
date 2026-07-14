@@ -9,6 +9,33 @@ import (
 	"github.com/google/uuid"
 )
 
+type messageRate struct {
+	tokens  float64
+	updated time.Time
+}
+
+func (s *Server) allowMessage(userID int64) bool {
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+	now := time.Now()
+	bucket := s.messageRates[userID]
+	if bucket == nil {
+		bucket = &messageRate{tokens: float64(s.cfg.MessageRateBurst), updated: now}
+		s.messageRates[userID] = bucket
+	}
+	elapsed := now.Sub(bucket.updated).Minutes()
+	bucket.tokens += elapsed * float64(s.cfg.MessageRatePerMinute)
+	if bucket.tokens > float64(s.cfg.MessageRateBurst) {
+		bucket.tokens = float64(s.cfg.MessageRateBurst)
+	}
+	bucket.updated = now
+	if bucket.tokens < 1 {
+		return false
+	}
+	bucket.tokens--
+	return true
+}
+
 const maxEncryptedEnvelopeBytes = 24 * 1024
 
 func (s *Server) handleCreateEncryptedMessage(w http.ResponseWriter, r *http.Request) {
@@ -29,9 +56,31 @@ func (s *Server) handleCreateEncryptedMessage(w http.ResponseWriter, r *http.Req
 		writeError(w, 400, "invalid_message")
 		return
 	}
+	var existingSender, existingSequence int64
+	if err := s.db.QueryRowContext(r.Context(), "SELECT sender_id,sequence FROM encrypted_messages WHERE message_id=?", body.ID).Scan(&existingSender, &existingSequence); err == nil {
+		if existingSender != user.ID {
+			writeError(w, 409, "message_id_conflict")
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"id": body.ID, "sequence": existingSequence})
+		return
+	}
+	if !s.allowMessage(user.ID) {
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, "message_rate_limited")
+		return
+	}
 	if !s.areContacts(r.Context(), user.ID, body.To) {
 		writeError(w, 403, "not_contact")
 		return
+	}
+	if s.cfg.MessageQuotaBytes > 0 {
+		var used int64
+		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(LENGTH(ciphertext)),0) FROM encrypted_messages WHERE sender_id=?", user.ID).Scan(&used)
+		if used+int64(len(body.Ciphertext)) > s.cfg.MessageQuotaBytes {
+			writeError(w, http.StatusInsufficientStorage, "message_quota_exceeded")
+			return
+		}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := s.db.ExecContext(r.Context(), `INSERT INTO encrypted_messages (message_id,sender_id,recipient_id,ciphertext,created_at) VALUES (?,?,?,?,?) ON CONFLICT(message_id) DO NOTHING`, body.ID, user.ID, body.To, string(body.Ciphertext), now)

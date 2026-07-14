@@ -8,21 +8,33 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/davicbtoliveira/private-direct/web"
 )
 
 type Server struct {
-	cfg        Config
-	db         *sql.DB
-	mux        *http.ServeMux
-	presence   *presenceHub
-	dist       fs.FS
-	httpClient *http.Client
+	cfg          Config
+	db           *sql.DB
+	mux          *http.ServeMux
+	presence     *presenceHub
+	dist         fs.FS
+	httpClient   *http.Client
+	rateMu       sync.Mutex
+	messageRates map[int64]*messageRate
 }
 
 func NewServer(cfg Config) (*Server, error) {
+	if cfg.MessageQuotaBytes == 0 {
+		cfg.MessageQuotaBytes = 100 * 1024 * 1024
+	}
+	if cfg.MessageRatePerMinute == 0 {
+		cfg.MessageRatePerMinute = 120
+	}
+	if cfg.MessageRateBurst == 0 {
+		cfg.MessageRateBurst = 30
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -33,11 +45,12 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		cfg:        cfg,
-		db:         db,
-		mux:        http.NewServeMux(),
-		presence:   newPresenceHub(),
-		httpClient: &http.Client{Timeout: 3 * time.Second},
+		cfg:          cfg,
+		db:           db,
+		mux:          http.NewServeMux(),
+		presence:     newPresenceHub(),
+		httpClient:   &http.Client{Timeout: 3 * time.Second},
+		messageRates: make(map[int64]*messageRate),
 	}
 	s.dist, err = fs.Sub(web.Dist, "dist")
 	if err != nil {

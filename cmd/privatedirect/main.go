@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -15,12 +16,15 @@ import (
 
 func main() {
 	cfg := app.Config{
-		Addr:              envOrDefault("PRIVATE_DIRECT_ADDR", ":8080"),
-		DatabasePath:      envOrDefault("PRIVATE_DIRECT_DB", "private-direct.db"),
-		OperatorToken:     os.Getenv("PRIVATE_DIRECT_OPERATOR_TOKEN"),
-		JWTSecret:         os.Getenv("PRIVATE_DIRECT_JWT_SECRET"),
-		PwnedPasswordsURL: "https://api.pwnedpasswords.com/range",
-		STUNServers:       splitCSV(os.Getenv("PRIVATE_DIRECT_STUN_URLS")),
+		Addr:                 envOrDefault("PRIVATE_DIRECT_ADDR", ":8080"),
+		DatabasePath:         envOrDefault("PRIVATE_DIRECT_DB", "private-direct.db"),
+		OperatorToken:        os.Getenv("PRIVATE_DIRECT_OPERATOR_TOKEN"),
+		JWTSecret:            os.Getenv("PRIVATE_DIRECT_JWT_SECRET"),
+		PwnedPasswordsURL:    "https://api.pwnedpasswords.com/range",
+		MessageQuotaBytes:    envInt64("PRIVATE_DIRECT_MESSAGE_QUOTA_BYTES", 100*1024*1024),
+		MessageRatePerMinute: int(envInt64("PRIVATE_DIRECT_MESSAGE_RATE_PER_MINUTE", 120)),
+		MessageRateBurst:     int(envInt64("PRIVATE_DIRECT_MESSAGE_RATE_BURST", 30)),
+		STUNServers:          splitCSV(os.Getenv("PRIVATE_DIRECT_STUN_URLS")),
 		TURNServers: []app.ICEServer{
 			{
 				URLs:       splitCSV(os.Getenv("PRIVATE_DIRECT_TURN_URLS")),
@@ -86,4 +90,16 @@ func splitCSV(value string) []string {
 		}
 	}
 	return items
+}
+
+func envInt64(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

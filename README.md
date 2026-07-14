@@ -45,6 +45,9 @@ contacts register through the UI.
 | `PRIVATE_DIRECT_TURN_URLS` | — | Comma-separated TURN URLs |
 | `PRIVATE_DIRECT_TURN_USERNAME` | — | TURN credential username |
 | `PRIVATE_DIRECT_TURN_CREDENTIAL` | — | TURN credential password |
+| `PRIVATE_DIRECT_MESSAGE_QUOTA_BYTES` | — | Per-user ciphertext quota (default 100 MiB) |
+| `PRIVATE_DIRECT_MESSAGE_RATE_PER_MINUTE` | — | Sustained message rate (default 120/min) |
+| `PRIVATE_DIRECT_MESSAGE_RATE_BURST` | — | Message rate burst (default 30) |
 
 ### Production build
 
