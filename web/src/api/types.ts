@@ -2,6 +2,7 @@ export type User = {
   id: number;
   username: string;
   e2ee_ready?: boolean;
+  protocol_version?: number;
 };
 
 export type SessionResponse = {

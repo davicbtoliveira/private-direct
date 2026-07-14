@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
@@ -55,6 +57,46 @@ func TestEncryptedMessagePersistenceIsIdempotentAndOrdered(t *testing.T) {
 	decodeResponse(t, res, &body)
 	if len(body.Messages) != 1 || body.Messages[0].ID != payload["id"] || body.Messages[0].Sequence == 0 {
 		t.Fatalf("messages=%+v", body.Messages)
+	}
+}
+
+func TestSignedEventChainRejectsGapAlterationAndRegression(t *testing.T) {
+	srv := newTestServer(t)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+	registerUser(t, httpSrv.URL, "ia", "alice", "secret-password")
+	registerUser(t, httpSrv.URL, "ib", "bob", "secret-password")
+	_, _ = srv.db.Exec("INSERT INTO contacts(user_low_id,user_high_id,created_at) VALUES(1,2,'now')")
+	_, _ = srv.db.Exec(`INSERT INTO e2ee_accounts(user_id,protocol_version,identity_keys,wrapped_master_key,kdf_salt,created_at) VALUES(1,1,'{}','wrapped','salt','now')`)
+	_, _ = srv.db.Exec(`INSERT INTO e2ee_accounts(user_id,protocol_version,identity_keys,wrapped_master_key,kdf_salt,created_at) VALUES(2,1,'{}','wrapped','salt','now')`)
+	public, private, _ := ed25519.GenerateKey(rand.Reader)
+	keys, _ := json.Marshal(map[string]any{"keys": map[string]string{"ed25519:device": base64.RawStdEncoding.EncodeToString(public)}})
+	_, _ = srv.db.Exec(`INSERT INTO e2ee_devices(id,user_id,public_keys,created_at,last_seen_at) VALUES('device',1,?,'now','now')`, string(keys))
+	token := loginUser(t, httpSrv.URL, "alice", "secret-password")
+	cipher := map[string]string{"body": "opaque"}
+	makePayload := func(id string, index int64, previous string, alter bool) map[string]any {
+		raw, _ := json.Marshal(cipher)
+		sum := sha256.Sum256([]byte(id + "|2|" + string(raw) + "|" + strconv.FormatInt(index, 10) + "|" + previous))
+		hash := base64.RawStdEncoding.EncodeToString(sum[:])
+		if alter {
+			hash = "altered"
+		}
+		return map[string]any{"id": id, "to": 2, "ciphertext": cipher, "chain": map[string]any{"device_id": "device", "index": index, "previous_hash": previous, "event_hash": hash, "signature": base64.RawStdEncoding.EncodeToString(ed25519.Sign(private, []byte(hash)))}}
+	}
+	first := makePayload("550e8400-e29b-41d4-a716-446655440000", 1, "", false)
+	res := postJSON(t, httpSrv.URL+"/api/messages", bearerHeaders(token), first)
+	assertStatus(t, res, http.StatusCreated)
+	res.Body.Close()
+	firstHash := first["chain"].(map[string]any)["event_hash"].(string)
+	for _, payload := range []map[string]any{makePayload("550e8400-e29b-41d4-a716-446655440001", 3, firstHash, false), makePayload("550e8400-e29b-41d4-a716-446655440002", 2, firstHash, true), makePayload("550e8400-e29b-41d4-a716-446655440003", 1, "", false)} {
+		res = postJSON(t, httpSrv.URL+"/api/messages", bearerHeaders(token), payload)
+		assertStatus(t, res, http.StatusConflict)
+		assertErrorCode(t, res, "invalid_event_chain")
+	}
+	var count int
+	_ = srv.db.QueryRow(`SELECT COUNT(*) FROM encrypted_messages`).Scan(&count)
+	if count != 1 {
+		t.Fatalf("messages=%d", count)
 	}
 }
 

@@ -186,12 +186,13 @@ func (s *Server) handleE2EEContactIdentity(w http.ResponseWriter, r *http.Reques
 	username := normalizeUsername(r.PathValue("username"))
 	var contactID int64
 	var identity string
-	err := s.db.QueryRowContext(r.Context(), `SELECT users.id,e2ee_accounts.identity_keys FROM users JOIN e2ee_accounts ON e2ee_accounts.user_id=users.id WHERE users.username=?`, username).Scan(&contactID, &identity)
+	var protocol int
+	err := s.db.QueryRowContext(r.Context(), `SELECT users.id,e2ee_accounts.identity_keys,e2ee_accounts.protocol_version FROM users JOIN e2ee_accounts ON e2ee_accounts.user_id=users.id WHERE users.username=?`, username).Scan(&contactID, &identity, &protocol)
 	if err != nil || !s.areContacts(r.Context(), user.ID, contactID) {
 		writeError(w, 404, "contact_identity_not_found")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"username": username, "identity_keys": json.RawMessage(identity)})
+	writeJSON(w, 200, map[string]any{"username": username, "identity_keys": json.RawMessage(identity), "protocol_version": protocol})
 }
 
 func (s *Server) handleE2EEKeyBackup(w http.ResponseWriter, r *http.Request) {

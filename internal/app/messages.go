@@ -2,6 +2,8 @@ package app
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -50,6 +52,13 @@ func (s *Server) handleCreateEncryptedMessage(w http.ResponseWriter, r *http.Req
 		ID         string          `json:"id"`
 		To         int64           `json:"to"`
 		Ciphertext json.RawMessage `json:"ciphertext"`
+		Chain      *struct {
+			DeviceID     string `json:"device_id"`
+			Index        int64  `json:"index"`
+			PreviousHash string `json:"previous_hash"`
+			EventHash    string `json:"event_hash"`
+			Signature    string `json:"signature"`
+		} `json:"chain"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -82,6 +91,23 @@ func (s *Server) handleCreateEncryptedMessage(w http.ResponseWriter, r *http.Req
 		writeError(w, 403, "not_contact")
 		return
 	}
+	var e2eeReady, protocol int
+	_ = s.db.QueryRowContext(r.Context(), `SELECT 1,protocol_version FROM e2ee_accounts WHERE user_id=?`, user.ID).Scan(&e2eeReady, &protocol)
+	if e2eeReady == 1 {
+		if protocol != e2eeProtocolVersion {
+			writeError(w, http.StatusUpgradeRequired, "protocol_update_required")
+			return
+		}
+		var contactProtocol int
+		if s.db.QueryRowContext(r.Context(), `SELECT protocol_version FROM e2ee_accounts WHERE user_id=?`, body.To).Scan(&contactProtocol) != nil || contactProtocol != e2eeProtocolVersion {
+			writeError(w, http.StatusConflict, "contact_protocol_incompatible")
+			return
+		}
+		if body.Chain == nil || !s.validMessageChain(r, user.ID, body.To, body.ID, body.Ciphertext, *body.Chain) {
+			writeError(w, 409, "invalid_event_chain")
+			return
+		}
+	}
 	if s.cfg.MessageQuotaBytes > 0 {
 		var used int64
 		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(LENGTH(ciphertext)),0) FROM encrypted_messages WHERE sender_id=?", user.ID).Scan(&used)
@@ -105,8 +131,50 @@ func (s *Server) handleCreateEncryptedMessage(w http.ResponseWriter, r *http.Req
 	}
 	var sequence int64
 	_ = s.db.QueryRowContext(r.Context(), "SELECT sequence FROM encrypted_messages WHERE message_id=?", body.ID).Scan(&sequence)
+	if body.Chain != nil {
+		_, err = s.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO message_event_chains(message_id,sender_id,contact_id,device_id,event_index,previous_hash,event_hash,signature) VALUES(?,?,?,?,?,?,?,?)`, body.ID, user.ID, body.To, body.Chain.DeviceID, body.Chain.Index, body.Chain.PreviousHash, body.Chain.EventHash, body.Chain.Signature)
+		if err != nil {
+			_, _ = s.db.ExecContext(r.Context(), `DELETE FROM encrypted_messages WHERE message_id=?`, body.ID)
+			writeError(w, 409, "invalid_event_chain")
+			return
+		}
+	}
 	s.presence.notifyUser(body.To, map[string]any{"type": "mailbox_changed", "cursor": sequence})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": body.ID, "sequence": sequence, "created_at": now})
+}
+
+func (s *Server) validMessageChain(r *http.Request, userID, contactID int64, messageID string, ciphertext json.RawMessage, chain struct {
+	DeviceID     string `json:"device_id"`
+	Index        int64  `json:"index"`
+	PreviousHash string `json:"previous_hash"`
+	EventHash    string `json:"event_hash"`
+	Signature    string `json:"signature"`
+}) bool {
+	var raw string
+	if s.db.QueryRowContext(r.Context(), `SELECT public_keys FROM e2ee_devices WHERE id=? AND user_id=? AND revoked_at IS NULL`, chain.DeviceID, userID).Scan(&raw) != nil {
+		return false
+	}
+	var keys struct {
+		Keys map[string]string `json:"keys"`
+	}
+	if json.Unmarshal([]byte(raw), &keys) != nil {
+		return false
+	}
+	public, _ := base64.RawStdEncoding.DecodeString(keys.Keys["ed25519:"+chain.DeviceID])
+	signature, _ := base64.RawStdEncoding.DecodeString(chain.Signature)
+	var lastIndex int64
+	var previous string
+	err := s.db.QueryRowContext(r.Context(), `SELECT event_index,event_hash FROM message_event_chains WHERE sender_id=? AND contact_id=? AND device_id=? ORDER BY event_index DESC LIMIT 1`, userID, contactID, chain.DeviceID).Scan(&lastIndex, &previous)
+	if err != nil {
+		lastIndex = 0
+		previous = ""
+	}
+	if chain.Index != lastIndex+1 || chain.PreviousHash != previous {
+		return false
+	}
+	sum := sha256.Sum256([]byte(messageID + "|" + strconv.FormatInt(contactID, 10) + "|" + string(ciphertext) + "|" + strconv.FormatInt(chain.Index, 10) + "|" + chain.PreviousHash))
+	expected := base64.RawStdEncoding.EncodeToString(sum[:])
+	return expected == chain.EventHash && len(public) == ed25519.PublicKeySize && ed25519.Verify(ed25519.PublicKey(public), []byte(chain.EventHash), signature)
 }
 
 func (s *Server) handleListEncryptedMessages(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +193,7 @@ func (s *Server) handleListEncryptedMessages(w http.ResponseWriter, r *http.Requ
 	if limit <= 0 || limit > 50 {
 		limit = 50
 	}
-	query := `SELECT sequence,message_id,sender_id,recipient_id,ciphertext,created_at,EXISTS(SELECT 1 FROM message_deliveries WHERE message_deliveries.message_id=encrypted_messages.message_id) FROM encrypted_messages WHERE ((sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)) AND NOT EXISTS(SELECT 1 FROM message_tombstones t WHERE t.message_id=encrypted_messages.message_id AND (t.scope='both' OR (t.scope='self' AND t.actor_id=?)))`
+	query := `SELECT encrypted_messages.sequence,encrypted_messages.message_id,encrypted_messages.sender_id,encrypted_messages.recipient_id,encrypted_messages.ciphertext,encrypted_messages.created_at,EXISTS(SELECT 1 FROM message_deliveries WHERE message_deliveries.message_id=encrypted_messages.message_id),c.device_id,c.event_index,c.previous_hash,c.event_hash,c.signature,d.public_keys FROM encrypted_messages LEFT JOIN message_event_chains c ON c.message_id=encrypted_messages.message_id LEFT JOIN e2ee_devices d ON d.id=c.device_id WHERE ((encrypted_messages.sender_id=? AND encrypted_messages.recipient_id=?) OR (encrypted_messages.sender_id=? AND encrypted_messages.recipient_id=?)) AND NOT EXISTS(SELECT 1 FROM message_tombstones t WHERE t.message_id=encrypted_messages.message_id AND (t.scope='both' OR (t.scope='self' AND t.actor_id=?)))`
 	args := []any{user.ID, contactID, contactID, user.ID, user.ID}
 	if before > 0 {
 		query += " AND sequence < ?"
@@ -144,14 +212,22 @@ func (s *Server) handleListEncryptedMessages(w http.ResponseWriter, r *http.Requ
 		var seq, sender, recipient int64
 		var id, cipher, created string
 		var delivered bool
-		if rows.Scan(&seq, &id, &sender, &recipient, &cipher, &created, &delivered) != nil {
+		var chainDevice, previous, eventHash, signature, deviceKeys sql.NullString
+		var chainIndex sql.NullInt64
+		if rows.Scan(&seq, &id, &sender, &recipient, &cipher, &created, &delivered, &chainDevice, &chainIndex, &previous, &eventHash, &signature, &deviceKeys) != nil {
 			continue
 		}
 		var raw any
 		if json.Unmarshal([]byte(cipher), &raw) != nil {
 			continue
 		}
-		messages = append(messages, map[string]any{"sequence": seq, "id": id, "sender_id": sender, "recipient_id": recipient, "ciphertext": raw, "created_at": created, "delivered": delivered})
+		message := map[string]any{"sequence": seq, "id": id, "sender_id": sender, "recipient_id": recipient, "ciphertext": raw, "created_at": created, "delivered": delivered}
+		if chainDevice.Valid {
+			var public any
+			_ = json.Unmarshal([]byte(deviceKeys.String), &public)
+			message["chain"] = map[string]any{"device_id": chainDevice.String, "index": chainIndex.Int64, "previous_hash": previous.String, "event_hash": eventHash.String, "signature": signature.String, "device_keys": public}
+		}
+		messages = append(messages, message)
 	}
 	deleted := []string{}
 	tombstones, _ := s.db.QueryContext(r.Context(), `SELECT DISTINCT message_id FROM message_tombstones WHERE ((actor_id=? AND other_user_id=?) OR (actor_id=? AND other_user_id=?)) AND (scope='both' OR actor_id=?)`, user.ID, contactID, contactID, user.ID, user.ID)

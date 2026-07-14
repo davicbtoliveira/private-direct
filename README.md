@@ -124,3 +124,16 @@ web/
   spa.go               Go embed directive
 docs/                  ADRs, PRDs, glossary
 ```
+
+## E2EE lifecycle
+
+E2EE remains beta pending external cryptographic review and remediation. Protocol mismatches block messaging; no plaintext fallback exists.
+
+Operator password reset restores authentication without unlocking messages:
+
+```sh
+curl -X PUT -H "X-Operator-Token: $OPERATOR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"password":"new strong password"}' https://example/api/operator/users/alice/password
+```
+
+History still requires an authorized device or recovery phrase. Account deletion is available under Authorized devices. It removes active server ciphertext, wrapped keys, sessions, and devices while permanently reserving the username. Encrypted backups follow configured retention and may temporarily retain deleted ciphertext.

@@ -93,10 +93,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/operator/backup/health", s.handleBackupHealth)
 	s.mux.HandleFunc("POST /api/operator/invites", s.handleCreateInvite)
+	s.mux.HandleFunc("PUT /api/operator/users/{username}/password", s.handleOperatorPasswordReset)
 	s.mux.HandleFunc("POST /api/register", s.handleRegister)
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	s.mux.HandleFunc("POST /api/logout", s.handleLogout)
+	s.mux.HandleFunc("DELETE /api/account", s.handleDeleteAccount)
 	s.mux.HandleFunc("POST /api/e2ee/setup", s.handleE2EESetup)
 	s.mux.HandleFunc("GET /api/e2ee/recovery", s.handleE2EERecovery)
 	s.mux.HandleFunc("POST /api/e2ee/recovery/devices", s.handleE2EERecoveryDevice)
@@ -204,6 +206,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validUsername(username) {
 		writeError(w, http.StatusBadRequest, "invalid_username")
+		return
+	}
+	var reserved int
+	if err := s.db.QueryRowContext(r.Context(), `SELECT 1 FROM reserved_usernames WHERE username=?`, username).Scan(&reserved); err == nil {
+		writeError(w, http.StatusConflict, "username_reserved")
 		return
 	}
 	if req.Password == "" {

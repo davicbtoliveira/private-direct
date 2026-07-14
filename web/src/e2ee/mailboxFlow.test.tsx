@@ -9,6 +9,7 @@ import FakeWebSocket from "../test/FakeWebSocket";
 const cryptoSession = vi.hoisted(() => ({
   encrypt: vi.fn().mockResolvedValue({ algorithm: "m.megolm.v1.aes-sha2", ciphertext: "opaque" }),
   decrypt: vi.fn().mockResolvedValue({ content: { body: "persisted secret", sent_at: "2026-07-14T00:00:00Z" } }),
+  createEventChain: vi.fn().mockResolvedValue({device_id:"device",index:1,previous_hash:"",event_hash:"hash",signature:"signature"}),
 }));
 vi.mock("./matrixSession", () => ({ matrixSession: vi.fn().mockResolvedValue(cryptoSession), hasRememberedDevice: () => true }));
 
@@ -23,7 +24,7 @@ beforeEach(() => {
   vi.spyOn(client.api, "listMessages").mockResolvedValue({messages:[{id:"550e8400-e29b-41d4-a716-446655440000",sequence:1,sender_id:2,recipient_id:1,ciphertext:{ciphertext:"opaque"},created_at:"2026-07-14T00:00:00Z",delivered:false}]});
   vi.spyOn(client.api, "markMessageDelivered").mockResolvedValue(undefined);
   vi.spyOn(client.api, "createMessage").mockResolvedValue({id:"id",sequence:2,created_at:"2026-07-14T00:01:00Z"});
-  vi.spyOn(client.api, "contactIdentity").mockResolvedValue({username:"bob",identity_keys:{master:"bob-public"}});
+  vi.spyOn(client.api, "contactIdentity").mockResolvedValue({username:"bob",identity_keys:{master:"bob-public"},protocol_version:1});
 });
 
 it("loads decrypted history and persists only encrypted outgoing content", async () => {

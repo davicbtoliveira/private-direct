@@ -1,4 +1,5 @@
-export type OutboxItem = { id: string; to: number; ciphertext: Record<string, unknown> };
+import type { EventChain } from "./eventChain";
+export type OutboxItem = { id: string; to: number; ciphertext: Record<string, unknown>; chain?:EventChain };
 const DB_NAME="private-direct-outbox";const STORE="messages";let memory:OutboxItem[]=[];
 
 function database():Promise<IDBDatabase|null>{

@@ -14,6 +14,7 @@ import { mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
 import { clearMasterKeys, loadMasterKey, saveMasterKey } from "./keyStore";
 import { clearDraftStorage } from "./draftStore";
+import { clearEventChains, createEventChain } from "./eventChain";
 
 const DEVICE_KEY = "private-direct-device-id";
 let session: MatrixSession | null = null;
@@ -124,12 +125,13 @@ class MatrixSession {
 
   async rotateFutureKeys() { for (const id of this.rooms) await this.machine.invalidateGroupSession(new RoomId(id)); }
   async signTombstone(messageID:string,scope:"self"|"both",createdAt:string){const signed=`${messageID}|${scope}|${createdAt}`;const signatures=await this.machine.sign(signed);const raw=JSON.parse(signatures.asJSON()) as Record<string,Record<string,string>>;const signature=raw[`@${this.username}:private-direct`]?.[`ed25519:${this.deviceID}`];if(!signature)throw new Error("tombstone_signature_unavailable");return{device_id:this.deviceID,created_at:createdAt,signature}}
+  async createEventChain(contactID:number,messageID:string,ciphertext:Record<string,unknown>){return createEventChain(this.username,contactID,messageID,ciphertext,this.deviceID,async hash=>{const signatures=await this.machine.sign(hash);const raw=JSON.parse(signatures.asJSON()) as Record<string,Record<string,string>>;const signature=raw[`@${this.username}:private-direct`]?.[`ed25519:${this.deviceID}`];if(!signature)throw new Error("event_signature_unavailable");return signature})}
 }
 
 export function rememberDevice(deviceID: string) { localStorage.setItem(DEVICE_KEY, deviceID); }
 export function hasRememberedDevice() { return localStorage.getItem(DEVICE_KEY) !== null; }
 export function rememberedDeviceID() { return localStorage.getItem(DEVICE_KEY); }
-export async function clearLocalDevice(username:string) { const id=rememberedDeviceID();localStorage.removeItem(DEVICE_KEY);session=null;clearDraftStorage();await clearMasterKeys();if(id)indexedDB.deleteDatabase(`private-direct-${username}-${id}`); }
+export async function clearLocalDevice(username:string) { const id=rememberedDeviceID();localStorage.removeItem(DEVICE_KEY);session=null;clearDraftStorage();clearEventChains();await clearMasterKeys();if(id)indexedDB.deleteDatabase(`private-direct-${username}-${id}`); }
 export async function matrixSession(username: string) { session ??= await MatrixSession.open(username); return session; }
 
 export async function recoverDevice(username: string, phrase: string) {

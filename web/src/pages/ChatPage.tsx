@@ -15,6 +15,7 @@ import Sheet from "../components/Sheet";
 import securityStyles from "../e2ee/SecuritySheets.module.css";
 import { identityFingerprint, knownIdentity, trustIdentity } from "../e2ee/identity";
 import { loadDraft, saveDraft } from "../e2ee/draftStore";
+import { validateEventPage } from "../e2ee/eventChain";
 
 type DeliveryState = "queued" | "sending" | "sent" | "delivered" | "not-delivered";
 
@@ -136,6 +137,7 @@ export default function ChatPage() {
   const [identityOpen,setIdentityOpen]=useState(false);
   const [fingerprint,setFingerprint]=useState("");
   const [identityChanged,setIdentityChanged]=useState(false);
+  const [protocolMismatch,setProtocolMismatch]=useState(false);
   const [ephemeralStorage,setEphemeralStorage]=useState(false);
 
   // Chat state: per-contact transcripts, drafts, unread, deduplication
@@ -155,7 +157,7 @@ export default function ChatPage() {
 
   const contact = contacts.find((c) => c.username === username);
 
-  useEffect(()=>{if(!contact)return;let cancelled=false;void api.contactIdentity(contact.username).then(async result=>{const next=await identityFingerprint(result.identity_keys);if(cancelled)return;const known=knownIdentity(contact.username);if(known===null)trustIdentity(contact.username,next);setFingerprint(next);setIdentityChanged(known!==null&&known!==next)}).catch(()=>{if(!cancelled)setIdentityChanged(true)});return()=>{cancelled=true}},[contact]);
+  useEffect(()=>{if(!contact)return;let cancelled=false;void api.contactIdentity(contact.username).then(async result=>{const next=await identityFingerprint(result.identity_keys);if(cancelled)return;setProtocolMismatch(result.protocol_version!==1);const known=knownIdentity(contact.username);if(known===null)trustIdentity(contact.username,next);setFingerprint(next);setIdentityChanged(known!==null&&known!==next)}).catch(()=>{if(!cancelled)setIdentityChanged(true)});return()=>{cancelled=true}},[contact]);
 
   // Get or initialize transcript for username
   const transcript = username ? transcriptsRef.current[username] ?? [] : [];
@@ -177,6 +179,7 @@ export default function ChatPage() {
       try {
         const cryptoSession = await matrixSession(me.username);
         const response = await api.listMessages(contact.id);
+        await validateEventPage([...response.messages].reverse());
         const loaded: ChatMessage[] = [];
         for (const stored of [...response.messages].reverse()) {
           const senderUsername = stored.sender_id === me.id ? me.username : contact.username;
@@ -225,7 +228,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!me || realtimeState !== "connected") return;
-    void (async()=>{for(const item of await queuedMessages()){try{await api.createMessage(item.id,item.to,item.ciphertext);await removeQueued(item.id);for(const messages of Object.values(transcriptsRef.current)){const found=messages.find(message=>message.id===item.id);if(found)found.delivery="sent"}}catch{continue}}rerender()})();
+    void (async()=>{for(const item of await queuedMessages()){try{await api.createMessage(item.id,item.to,item.ciphertext,item.chain);await removeQueued(item.id);for(const messages of Object.values(transcriptsRef.current)){const found=messages.find(message=>message.id===item.id);if(found)found.delivery="sent"}}catch{continue}}rerender()})();
   },[mailboxRevision,me,realtimeState,rerender]);
 
   const setComposerWithDraft = useCallback((value: string) => {
@@ -345,7 +348,7 @@ export default function ChatPage() {
       ? `Incoming requests, ${requests.length} pending`
       : "Incoming requests";
 
-  const canSend = composerValue.trim().length > 0 && !identityChanged;
+  const canSend = composerValue.trim().length > 0 && !identityChanged && !protocolMismatch;
 
   const sendMessage = async () => {
     if (!canSend || !username || !contact) return;
@@ -374,10 +377,11 @@ export default function ChatPage() {
     try {
       const cryptoSession = await matrixSession(me!.username);
       const ciphertext = await cryptoSession.encrypt(me!.id, contactId, contact.username, { body: content, sent_at: timestamp });
-      await queueMessage({ id, to: contactId, ciphertext });
+      const chain=await cryptoSession.createEventChain(contactId,id,ciphertext);
+      await queueMessage({ id, to: contactId, ciphertext,chain });
       message.delivery = "queued";
       rerender();
-      await api.createMessage(id, contactId, ciphertext);
+      await api.createMessage(id, contactId, ciphertext,chain);
       await removeQueued(id);
       message.delivery = "sent";
       sendToPeer(contactId, JSON.stringify({ type: "encrypted_message", id, ciphertext, timestamp }));
@@ -407,9 +411,10 @@ export default function ChatPage() {
     try {
       const cryptoSession = await matrixSession(me!.username);
       const ciphertext = await cryptoSession.encrypt(me!.id, contact.id, contact.username, { body: message.content, sent_at: message.timestamp });
-      await queueMessage({ id: message.id, to: contact.id, ciphertext });
+      const chain=await cryptoSession.createEventChain(contact.id,message.id,ciphertext);
+      await queueMessage({ id: message.id, to: contact.id, ciphertext,chain });
       message.delivery="queued";rerender();
-      await api.createMessage(message.id, contact.id, ciphertext);
+      await api.createMessage(message.id, contact.id, ciphertext,chain);
       await removeQueued(message.id);
       message.delivery = "sent";
       sendToPeer(contact.id, JSON.stringify({ type: "encrypted_message", id: message.id, ciphertext, timestamp: message.timestamp }));
@@ -637,6 +642,7 @@ export default function ChatPage() {
               {username && (
                 <div className={styles.composerArea}>
                   {identityChanged && <div className={styles.identityWarning} role="alert">Contact identity changed. Verify safety number before sending.</div>}
+                  {protocolMismatch && <div className={styles.identityWarning} role="alert">Contact uses an incompatible encryption protocol. They must update before messaging. Plaintext fallback is disabled.</div>}
                   {peerState === "offline" && (
                     <p className={styles.offlineNotice}>
                       {contact?.username ?? username} is offline. Messages cannot be delivered.

@@ -48,6 +48,12 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		)`,
 		},
 		{
+			query: `CREATE TABLE IF NOT EXISTS reserved_usernames (
+			username TEXT PRIMARY KEY,
+			reserved_at TEXT NOT NULL
+		)`,
+		},
+		{
 			query: `CREATE TABLE IF NOT EXISTS invites (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			code TEXT NOT NULL UNIQUE,
@@ -194,6 +200,20 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 			created_at TEXT NOT NULL,
 			PRIMARY KEY(message_id,actor_id,scope),
 			FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		},
+		{
+			query: `CREATE TABLE IF NOT EXISTS message_event_chains (
+			message_id TEXT PRIMARY KEY,
+			sender_id INTEGER NOT NULL,
+			contact_id INTEGER NOT NULL,
+			device_id TEXT NOT NULL,
+			event_index INTEGER NOT NULL,
+			previous_hash TEXT NOT NULL,
+			event_hash TEXT NOT NULL,
+			signature TEXT NOT NULL,
+			UNIQUE(sender_id,contact_id,device_id,event_index),
+			FOREIGN KEY(message_id) REFERENCES encrypted_messages(message_id) ON DELETE CASCADE
 		)`,
 		},
 		{

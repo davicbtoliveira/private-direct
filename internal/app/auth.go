@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,9 +25,10 @@ const (
 )
 
 type authUser struct {
-	ID        int64  `json:"id"`
-	Username  string `json:"username"`
-	E2EEReady bool   `json:"e2ee_ready"`
+	ID              int64  `json:"id"`
+	Username        string `json:"username"`
+	E2EEReady       bool   `json:"e2ee_ready"`
+	ProtocolVersion int    `json:"protocol_version,omitempty"`
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -47,9 +50,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	err := s.db.QueryRowContext(r.Context(),
 		`SELECT users.id, users.username, users.password_hash,
 		 EXISTS(SELECT 1 FROM e2ee_accounts WHERE e2ee_accounts.user_id = users.id)
+		,COALESCE((SELECT protocol_version FROM e2ee_accounts WHERE e2ee_accounts.user_id=users.id),0)
 		 FROM users WHERE users.username = ?`,
 		username,
-	).Scan(&user.ID, &user.Username, &passwordHash, &user.E2EEReady)
+	).Scan(&user.ID, &user.Username, &passwordHash, &user.E2EEReady, &user.ProtocolVersion)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials")
 		return
@@ -58,9 +62,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "login_failed")
 		return
 	}
-	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
+	if !verifyPassword(passwordHash, req.Password) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials")
 		return
+	}
+	if !strings.HasPrefix(passwordHash, "$argon2id$") {
+		if upgraded, err := hashPassword(req.Password); err == nil {
+			_, _ = s.db.ExecContext(r.Context(), `UPDATE users SET password_hash=? WHERE id=?`, string(upgraded), user.ID)
+		}
 	}
 
 	if err := s.issueSession(w, r, user); err != nil {
@@ -164,13 +173,14 @@ func (s *Server) userForRefreshToken(r *http.Request, token string) (authUser, e
 	var expiresAt string
 	err := s.db.QueryRowContext(r.Context(),
 		`SELECT users.id, users.username, refresh_sessions.expires_at,
-		 EXISTS(SELECT 1 FROM e2ee_accounts WHERE e2ee_accounts.user_id = users.id)
+		 EXISTS(SELECT 1 FROM e2ee_accounts WHERE e2ee_accounts.user_id = users.id),
+		 COALESCE((SELECT protocol_version FROM e2ee_accounts WHERE e2ee_accounts.user_id=users.id),0)
 		 FROM refresh_sessions
 		 JOIN users ON users.id = refresh_sessions.user_id
 		 WHERE refresh_sessions.token_hash = ?
 		   AND refresh_sessions.revoked_at IS NULL`,
 		hashToken(token),
-	).Scan(&user.ID, &user.Username, &expiresAt, &user.E2EEReady)
+	).Scan(&user.ID, &user.Username, &expiresAt, &user.E2EEReady, &user.ProtocolVersion)
 	if err != nil {
 		return authUser{}, err
 	}
@@ -248,5 +258,30 @@ func hashToken(token string) string {
 }
 
 func hashPassword(password string) ([]byte, error) {
-	return bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	hash := argon2.IDKey([]byte(password), salt, 3, 64*1024, 1, 32)
+	return []byte(fmt.Sprintf("$argon2id$v=19$m=65536,t=3,p=1$%s$%s", base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(hash))), nil
+}
+
+func verifyPassword(encoded, password string) bool {
+	if !strings.HasPrefix(encoded, "$argon2id$") {
+		return bcrypt.CompareHashAndPassword([]byte(encoded), []byte(password)) == nil
+	}
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 {
+		return false
+	}
+	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
+	if err != nil {
+		return false
+	}
+	expected, err := base64.RawStdEncoding.DecodeString(parts[5])
+	if err != nil {
+		return false
+	}
+	actual := argon2.IDKey([]byte(password), salt, 3, 64*1024, 1, 32)
+	return subtle.ConstantTimeCompare(actual, expected) == 1
 }

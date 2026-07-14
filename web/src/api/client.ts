@@ -7,6 +7,7 @@ import type {
   RegistrationResponse,
 } from "./types";
 import type { E2EESetupPayload } from "../e2ee/setup";
+import type { EventChain } from "../e2ee/eventChain";
 
 const BASE = "/api";
 
@@ -71,6 +72,7 @@ export const api = {
     }),
   refresh: () => request<SessionResponse>("/refresh", { method: "POST", body: {} }),
   logout: () => request<void>("/logout", { method: "POST", body: {} }),
+  deleteAccount: (password:string)=>request<void>("/account",{method:"DELETE",body:{password}}),
   setupE2EE: (body: E2EESetupPayload) =>
     request<{ e2ee_ready: true }>("/e2ee/setup", { method: "POST", body }),
   e2eeRecovery: () => request<{ wrapped_master_key: string; kdf_salt: string; key_backup: string; identity_keys: Record<string, unknown>; protocol_version: number }>("/e2ee/recovery"),
@@ -78,14 +80,14 @@ export const api = {
   saveKeyBackup: (ciphertext: string) => request<void>("/e2ee/key-backup", { method: "PUT", body: { ciphertext } }),
   e2eeDevices: () => request<{ devices: Array<{ id: string; name: string; created_at: string; last_seen_at: string }>; limit: number }>("/e2ee/devices"),
   revokeE2EEDevice: (id: string) => request<void>(`/e2ee/devices/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  contactIdentity: (username: string) => request<{ username: string; identity_keys: Record<string, unknown> }>(`/e2ee/identity/${encodeURIComponent(username)}`),
+  contactIdentity: (username: string) => request<{ username: string; identity_keys: Record<string, unknown>; protocol_version:number }>(`/e2ee/identity/${encodeURIComponent(username)}`),
   e2eeKeysUpload: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/upload", { method: "POST", body }),
   e2eeKeysQuery: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/query", { method: "POST", body }),
   e2eeKeysClaim: (body: Record<string, unknown>) => request<Record<string, unknown>>("/e2ee/keys/claim", { method: "POST", body }),
   e2eeToDevice: (eventType: string, txnID: string, body: Record<string, unknown>) => request<Record<string, unknown>>(`/e2ee/to-device/${encodeURIComponent(eventType)}/${encodeURIComponent(txnID)}`, { method: "POST", body }),
   e2eeSync: (deviceID: string, since: string) => request<{ next: string; events: Record<string, unknown>[] }>(`/e2ee/sync?device_id=${encodeURIComponent(deviceID)}&since=${encodeURIComponent(since)}`),
-  createMessage: (id: string, to: number, ciphertext: Record<string, unknown>) => request<{ id: string; sequence: number; created_at: string }>("/messages", { method: "POST", body: { id, to, ciphertext } }),
-  listMessages: (contactID: number, before?: number) => request<{ messages: Array<{ id: string; sequence: number; sender_id: number; recipient_id: number; ciphertext: Record<string, unknown>; created_at: string; delivered: boolean }>; deleted?: string[] }>(`/messages?contact_id=${contactID}&limit=50${before ? `&before=${before}` : ""}`),
+  createMessage: (id: string, to: number, ciphertext: Record<string, unknown>,chain?:EventChain) => request<{ id: string; sequence: number; created_at: string }>("/messages", { method: "POST", body: { id, to, ciphertext,chain } }),
+  listMessages: (contactID: number, before?: number) => request<{ messages: Array<{ id: string; sequence: number; sender_id: number; recipient_id: number; ciphertext: Record<string, unknown>; created_at: string; delivered: boolean; chain?:EventChain & {device_keys:{keys?:Record<string,string>}} }>; deleted?: string[] }>(`/messages?contact_id=${contactID}&limit=50${before ? `&before=${before}` : ""}`),
   markMessageDelivered: (id: string) => request<void>(`/messages/${encodeURIComponent(id)}/delivered`, { method: "POST", body: {} }),
   unreadMessages: () => request<{ unread: Record<string, number> }>("/messages/unread"),
   markConversationRead: (contactID: number, sequence: number) => request<void>(`/conversations/${contactID}/read`, { method: "PUT", body: { sequence } }),
