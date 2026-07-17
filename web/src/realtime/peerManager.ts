@@ -9,6 +9,7 @@ type IceServerConfig = {
 interface PeerState {
   connection: RTCPeerConnection | null;
   channel: RTCDataChannel | null;
+  mediaChannel: RTCDataChannel | null;
   state: PeerChannelState;
   connectionId: string | null;
   polite: boolean;
@@ -23,6 +24,7 @@ interface PeerState {
 export type SignalSender = (toUserId: number, signalType: string, payload: Record<string, unknown>) => void;
 type StateCallback = (userId: number, state: PeerChannelState) => void;
 type MessageCallback = (fromUserId: number, data: string) => void;
+type MediaCallback = (fromUserId: number, data: ArrayBuffer) => void;
 type IsOnlineFn = (userId: number) => boolean;
 
 const NEGOTIATION_TIMEOUT_MS = 15_000;
@@ -34,6 +36,7 @@ export class PeerManager {
   private sendSignal: SignalSender | null = null;
   private onStateChange: StateCallback | null = null;
   private onMessage: MessageCallback | null = null;
+  private onMedia: MediaCallback | null = null;
   private isOnline: IsOnlineFn | null = null;
 
   init(
@@ -43,6 +46,7 @@ export class PeerManager {
     onStateChange: StateCallback,
     onMessage: MessageCallback,
     isOnline: IsOnlineFn,
+    onMedia?: MediaCallback,
   ) {
     this.myUserId = myUserId;
     this.iceServers = iceServers.map((s) => ({
@@ -52,6 +56,7 @@ export class PeerManager {
     this.sendSignal = sendSignal;
     this.onStateChange = onStateChange;
     this.onMessage = onMessage;
+    this.onMedia = onMedia ?? null;
     this.isOnline = isOnline;
   }
 
@@ -129,6 +134,25 @@ export class PeerManager {
 
   getChannel(userId: number): RTCDataChannel | null {
     return this.peers.get(userId)?.channel ?? null;
+  }
+
+  openMediaChannel(userId: number): boolean {
+    const state = this.peers.get(userId);
+    if (!state?.connection) return false;
+    if (state.mediaChannel?.readyState === "open") return true;
+    if (!state.mediaChannel) {
+      const channel = state.connection.createDataChannel("media", { ordered: true });
+      state.mediaChannel = channel;
+      this.setupMediaChannel(userId, channel);
+    }
+    return true;
+  }
+
+  sendMedia(userId: number, data: ArrayBuffer): boolean {
+    const channel = this.peers.get(userId)?.mediaChannel;
+    if (!channel || channel.readyState !== "open") return false;
+    channel.send(data);
+    return true;
   }
 
   retryConnection(userId: number) {
@@ -226,6 +250,7 @@ export class PeerManager {
     const state: PeerState = {
       connection: pc,
       channel: null,
+      mediaChannel: null,
       state: "negotiating",
       connectionId,
       polite,
@@ -268,6 +293,9 @@ export class PeerManager {
       if (dataChannel.label === "chat") {
         state.channel = dataChannel;
         this.setupDataChannel(userId, dataChannel);
+      } else if (dataChannel.label === "media") {
+        state.mediaChannel = dataChannel;
+        this.setupMediaChannel(userId, dataChannel);
       }
     };
 
@@ -327,6 +355,13 @@ export class PeerManager {
     };
   }
 
+  private setupMediaChannel(userId: number, channel: RTCDataChannel) {
+    channel.binaryType = "arraybuffer";
+    channel.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) this.onMedia?.(userId, event.data);
+    };
+  }
+
   private handleConnectionLoss(userId: number, state: PeerState) {
     if (!this.isOnline?.(userId)) {
       this.setState(userId, "offline");
@@ -359,6 +394,10 @@ export class PeerManager {
       state.channel.onclose = null;
       state.channel.onmessage = null;
       state.channel.close();
+    }
+    if (state.mediaChannel) {
+      state.mediaChannel.onmessage = null;
+      state.mediaChannel.close();
     }
     if (state.connection) {
       state.connection.onicecandidate = null;
