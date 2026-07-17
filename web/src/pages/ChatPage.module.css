@@ -503,3 +503,195 @@
     gap: 0.35rem;
   }
 }
+
+/* ── file input ── */
+.fileInput {
+  display: none;
+}
+
+/* ── paperclip ── */
+.attachBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.attachBtn:hover:not(:disabled) {
+  color: var(--amber);
+}
+
+.attachBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── preview tray ── */
+.previewTray {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+  background-color: var(--panel);
+}
+
+.previewItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--carbon);
+  flex-shrink: 0;
+  max-width: 18rem;
+}
+
+.previewInvalid {
+  opacity: 0.5;
+}
+
+.previewThumb {
+  width: 2rem;
+  height: 2rem;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.previewInfo {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.previewName {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewSize {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.previewError {
+  font-size: 0.625rem;
+  color: var(--fault);
+}
+
+.previewRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 0.15rem;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.previewRemove:hover {
+  color: var(--fault);
+  background-color: var(--border);
+}
+
+/* ── attachment grid inside message bubbles ── */
+.attachmentGrid {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+
+.mine .attachmentGrid {
+  justify-items: end;
+}
+
+.theirs .attachmentGrid {
+  justify-items: start;
+}
+
+.attachmentTile {
+  max-width: 100%;
+}
+
+.attachmentMedia {
+  max-width: 14rem;
+  max-height: 14rem;
+  border-radius: var(--radius-sm);
+  display: block;
+  object-fit: cover;
+}
+
+.attachmentTransferring {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 10rem;
+  padding: 0.4rem 0;
+}
+
+.attachmentFilename {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progressBar {
+  height: 4px;
+  background-color: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background-color: var(--amber);
+  transition: width 0.2s;
+}
+
+.attachmentProgress {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.attachmentFailed {
+  font-size: 0.75rem;
+  color: var(--fault);
+  padding: 0.25rem 0;
+}
+
+/* ── sending overlay ── */
+.sendingOverlay {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+  background-color: var(--panel);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.sendingSpinner {
+  animation: spin 1s linear infinite;
+}
+
+/* ── drag-over state ── */
+.dragOver {
+  outline: 2px dashed var(--amber);
+  outline-offset: -2px;
+}

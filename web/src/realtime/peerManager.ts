@@ -136,16 +136,16 @@ export class PeerManager {
     return this.peers.get(userId)?.channel ?? null;
   }
 
-  openMediaChannel(userId: number): boolean {
+  openMediaChannel(userId: number): RTCDataChannel | null {
     const state = this.peers.get(userId);
-    if (!state?.connection) return false;
-    if (state.mediaChannel?.readyState === "open") return true;
+    if (!state?.connection) return null;
+    if (state.mediaChannel) return state.mediaChannel;
     if (!state.mediaChannel) {
       const channel = state.connection.createDataChannel("media", { ordered: true });
       state.mediaChannel = channel;
       this.setupMediaChannel(userId, channel);
     }
-    return true;
+    return state.mediaChannel;
   }
 
   sendMedia(userId: number, data: ArrayBuffer): boolean {

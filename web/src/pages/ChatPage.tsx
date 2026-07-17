@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bell, LogOut, Plus, RefreshCw, Send, ShieldCheck, Smartphone } from "lucide-react";
+import { ArrowLeft, Bell, Loader, LogOut, Paperclip, Plus, RefreshCw, Send, ShieldCheck, Smartphone, X } from "lucide-react";
 import AddContactSheet from "../contacts/AddContactSheet";
 import IncomingRequestsSheet from "../contacts/IncomingRequestsSheet";
 import { useRealtime, type PresenceState } from "../realtime/realtimeContext";
@@ -16,6 +16,8 @@ import securityStyles from "../e2ee/SecuritySheets.module.css";
 import { identityFingerprint, knownIdentity, trustIdentity } from "../e2ee/identity";
 import { loadDraft, saveDraft } from "../e2ee/draftStore";
 import { validateEventPage } from "../e2ee/eventChain";
+import { sanitizeFilename, type AttachmentInfo, type MediaManifest } from "../rtc/mediaTransfer";
+import { useMedia } from "../rtc/useMedia";
 
 type DeliveryState = "queued" | "sending" | "sent" | "delivered" | "not-delivered";
 
@@ -51,6 +53,33 @@ type PeerEnvelope = MessageEnvelope | EncryptedMessageEnvelope | AckEnvelope;
 
 const COMPOSER_LIMIT = 4000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_ATTACHMENTS = 10;
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+const VALID_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"]);
+
+type SelectedFile = { file: File; preview: string; error?: string };
+
+function mediaFileError(file: File): string | undefined {
+  if (!VALID_MEDIA_TYPES.has(file.type)) return "Unsupported file type";
+  const limit = file.type.startsWith("video/") ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+  return file.size > limit ? `File too large (max ${limit / 1024 / 1024} MiB)` : undefined;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function waitForOpen(channel: RTCDataChannel): Promise<void> {
+  if (channel.readyState === "open") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("media channel timeout")), 15_000);
+    channel.addEventListener("open", () => { window.clearTimeout(timer); resolve(); }, { once: true });
+    channel.addEventListener("close", () => { window.clearTimeout(timer); reject(new Error("media channel closed")); }, { once: true });
+  });
+}
 
 const presenceLabels: Record<PresenceState, string> = {
   connecting: "Connecting",
@@ -121,6 +150,8 @@ export default function ChatPage() {
     connectPeer,
     sendToPeer,
     setPeerMessageHandler,
+    openPeerMedia,
+    setPeerMediaHandler,
     retryPeer,
   } = useRealtime();
   const navigate = useNavigate();
@@ -143,6 +174,10 @@ export default function ChatPage() {
   // Chat state: per-contact transcripts, drafts, unread, deduplication
   const [composer, setComposer] = useState("");
   const [composerHeight, setComposerHeight] = useState<string>("44px");
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [sendingMedia, setSendingMedia] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { attachments, sendAttachment, receiveManifest, receiveAttachmentComplete, receiveFrame, clearAttachments } = useMedia();
 
   const transcriptsRef = useRef<Record<string, ChatMessage[]>>({});
   const unreadsRef = useRef<Record<string, number>>({});
@@ -248,6 +283,20 @@ export default function ChatPage() {
   // Subscribe to incoming messages
   useEffect(() => {
     setPeerMessageHandler((fromUserId, data) => {
+      try {
+        const media = JSON.parse(data) as Record<string, unknown>;
+        if (media.type === "media_manifest" && typeof media.messageId === "string" && Array.isArray(media.attachments)) {
+          receiveManifest(fromUserId, media as MediaManifest);
+          rerender();
+          return;
+        }
+        if (media.type === "attachment_complete") {
+          receiveAttachmentComplete(fromUserId, media);
+          return;
+        }
+      } catch {
+        return;
+      }
       const envelope = validEnvelope(data);
       if (!envelope) return;
 
@@ -316,7 +365,12 @@ export default function ChatPage() {
     return () => {
       setPeerMessageHandler(null);
     };
-  }, [contacts, me, rerender, sendToPeer, setPeerMessageHandler, username]);
+  }, [contacts, me, receiveAttachmentComplete, receiveManifest, rerender, sendToPeer, setPeerMessageHandler, username]);
+
+  useEffect(() => {
+    setPeerMediaHandler(receiveFrame);
+    return () => setPeerMediaHandler(null);
+  }, [receiveFrame, setPeerMediaHandler]);
 
   // Clear unread when opening a conversation
   useEffect(() => {
@@ -329,6 +383,7 @@ export default function ChatPage() {
     transcriptsRef.current = {};
     unreadsRef.current = {};
     receivedIDsRef.current = new Set();
+    clearAttachments();
     await logout();
     navigate("/login", { replace: true });
   };
@@ -348,12 +403,31 @@ export default function ChatPage() {
       ? `Incoming requests, ${requests.length} pending`
       : "Incoming requests";
 
-  const canSend = composerValue.trim().length > 0 && !identityChanged && !protocolMismatch;
+  const processFiles = useCallback((files: FileList) => {
+    const available = Math.max(0, MAX_ATTACHMENTS - selectedFiles.length);
+    const next = Array.from(files).slice(0, available).map((file) => ({
+      file,
+      preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
+      error: mediaFileError(file),
+    }));
+    setSelectedFiles((current) => [...current, ...next]);
+  }, [selectedFiles.length]);
+
+  const removeFile = (index: number) => {
+    setSelectedFiles((current) => {
+      const removed = current[index];
+      if (removed?.preview) URL.revokeObjectURL(removed.preview);
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
+  };
+
+  const canSend = (composerValue.trim().length > 0 || selectedFiles.some((item) => !item.error)) && !identityChanged && !protocolMismatch;
 
   const sendMessage = async () => {
     if (!canSend || !username || !contact) return;
     const contactId = contact.id;
     const content = composerValue;
+    const files = selectedFiles.filter((item) => !item.error);
     const id = crypto.randomUUID();
     const timestamp = new Date().toISOString();
 
@@ -373,6 +447,8 @@ export default function ChatPage() {
 
     setComposer("");
     if (username) draftsRef.current[username] = "";
+    setSelectedFiles([]);
+    for (const selected of selectedFiles) if (selected.preview) URL.revokeObjectURL(selected.preview);
 
     try {
       const cryptoSession = await matrixSession(me!.username);
@@ -390,6 +466,43 @@ export default function ChatPage() {
       message.delivery = status >= 400 && status < 500 && status !== 429 ? "not-delivered" : "queued";
     }
     rerender();
+
+    if (files.length > 0) {
+      const manifest: MediaManifest = {
+        messageId: id,
+        attachments: files.map(({ file }, index) => ({
+          id: crypto.randomUUID(),
+          index,
+          filename: sanitizeFilename(file.name),
+          mime: file.type,
+          size: file.size,
+        })),
+      };
+      sendToPeer(contactId, JSON.stringify({ type: "media_manifest", ...manifest }));
+      const mediaChannel = openPeerMedia(contactId);
+      if (mediaChannel) {
+        setSendingMedia(true);
+        try {
+          await waitForOpen(mediaChannel);
+          for (let index = 0; index < files.length; index++) {
+            const selected = files[index];
+            await sendAttachment(
+              contactId,
+              (data) => sendToPeer(contactId, data),
+              mediaChannel,
+              id,
+              selected.file,
+              index,
+              manifest.attachments[index].id,
+            );
+          }
+        } catch {
+          // Keep message; attachment state remains incomplete.
+        } finally {
+          setSendingMedia(false);
+        }
+      }
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -432,6 +545,16 @@ export default function ChatPage() {
   };
 
   const peerState = contact ? (peerChannels[contact.id] ?? "idle") : "idle";
+
+  const renderAttachment = (attachment: AttachmentInfo) => {
+    if (attachment.state === "complete" && attachment.objectUrl) {
+      return attachment.mime.startsWith("video/")
+        ? <video src={attachment.objectUrl} controls className={styles.attachmentMedia} />
+        : <img src={attachment.objectUrl} alt={attachment.filename} className={styles.attachmentMedia} />;
+    }
+    if (attachment.state === "failed") return <span className={styles.attachmentFailed}>{attachment.error ?? "Transfer failed"}</span>;
+    return <div className={styles.attachmentTransferring}><span className={styles.attachmentFilename}>{attachment.filename}</span><div className={styles.progressBar}><div className={styles.progressFill} style={{ width: `${attachment.progress}%` }} /></div><span className={styles.attachmentProgress}>{attachment.progress}%</span></div>;
+  };
 
   return (
     <>
@@ -602,7 +725,8 @@ export default function ChatPage() {
                       className={`${styles.messageRow} ${msg.direction === "sent" ? styles.sent : styles.received}`}
                     >
                       <div className={styles.messageBubble}>
-                        <span className={styles.messageContent}>{msg.content}</span>
+                        {msg.content && <span className={styles.messageContent}>{msg.content}</span>}
+                        {(attachments[msg.id] ?? []).length > 0 && <div className={styles.attachmentGrid}>{attachments[msg.id].map((attachment) => <div key={attachment.id} className={styles.attachmentTile}>{renderAttachment(attachment)}</div>)}</div>}
                         <span className={styles.messageMeta}>
                           {msg.direction === "sent" && (
                             <span className={styles.delivery} data-delivery={msg.delivery}>
@@ -641,6 +765,7 @@ export default function ChatPage() {
 
               {username && (
                 <div className={styles.composerArea}>
+                  <input ref={fileInputRef} className={styles.fileInput} type="file" multiple accept={[...VALID_MEDIA_TYPES].join(",")} onChange={(event) => { if (event.target.files) processFiles(event.target.files); event.target.value = ""; }} />
                   {identityChanged && <div className={styles.identityWarning} role="alert">Contact identity changed. Verify safety number before sending.</div>}
                   {protocolMismatch && <div className={styles.identityWarning} role="alert">Contact uses an incompatible encryption protocol. They must update before messaging. Plaintext fallback is disabled.</div>}
                   {peerState === "offline" && (
@@ -656,7 +781,10 @@ export default function ChatPage() {
                       </button>
                     </div>
                   )}
+                  {sendingMedia && <div className={styles.sendingOverlay}><Loader size={18} className={styles.sendingSpinner} /><span>Sending attachments…</span></div>}
+                  {selectedFiles.length > 0 && <div className={styles.previewTray} aria-label="Selected files">{selectedFiles.map((selected, index) => <div key={`${selected.file.name}-${index}`} className={`${styles.previewItem} ${selected.error ? styles.previewInvalid : ""}`}>{selected.preview && <img src={selected.preview} alt="" className={styles.previewThumb} />}<div className={styles.previewInfo}><span className={styles.previewName}>{selected.file.name}</span><span className={styles.previewSize}>{formatFileSize(selected.file.size)}</span>{selected.error && <span className={styles.previewError}>{selected.error}</span>}</div><button type="button" className={styles.previewRemove} onClick={() => removeFile(index)} aria-label={`Remove ${selected.file.name}`}><X size={14} /></button></div>)}</div>}
                   <div className={styles.composerRow}>
+                    <button type="button" className={styles.attachBtn} disabled={peerState !== "directly-connected" || sendingMedia} onClick={() => fileInputRef.current?.click()} aria-label="Attach files"><Paperclip size={18} /></button>
                     <textarea
                       className={styles.composer}
                       value={composerValue}
@@ -677,7 +805,7 @@ export default function ChatPage() {
                       type="button"
                       className={styles.sendBtn}
                       onClick={() => void sendMessage()}
-                      disabled={!canSend}
+                      disabled={!canSend || sendingMedia}
                       aria-label="Send message"
                     >
                       <Send size={18} />

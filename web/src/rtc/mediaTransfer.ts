@@ -29,20 +29,25 @@ export type MediaManifest = {
 };
 
 function chunkId(id: string): Uint8Array {
-  const encoder = new TextEncoder();
-  return encoder.encode(id);
+  const compact = id.replaceAll("-", "");
+  if (!/^[0-9a-f]{32}$/i.test(compact)) throw new Error("invalid attachment id");
+  return Uint8Array.from(compact.match(/.{2}/g)!, (byte) => Number.parseInt(byte, 16));
+}
+
+function frameId(bytes: Uint8Array): string {
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function binFrame(attachmentId: string, chunkIndex: number, data: ArrayBuffer): ArrayBuffer {
   const version = new Uint8Array([1]);
   const aId = chunkId(attachmentId);
-  const idx = new Uint32Array([chunkIndex]);
   const headerLen = 1 + 16 + 4;
   const buf = new ArrayBuffer(headerLen + data.byteLength);
   const view = new Uint8Array(buf);
   view.set(version, 0);
   view.set(aId, 1);
-  view.set(new Uint8Array(idx.buffer), 17);
+  new DataView(buf).setUint32(17, chunkIndex, false);
   view.set(new Uint8Array(data), headerLen);
   return buf;
 }
@@ -71,8 +76,8 @@ function readBinFrame(data: ArrayBuffer): { version: number; attachmentId: strin
   const view = new Uint8Array(data);
   const version = view[0];
   if (version !== 1) return null;
-  const aId = new TextDecoder().decode(view.slice(1, 17));
-  const idx = new Uint32Array(data.slice(17, 21))[0];
+  const aId = frameId(view.slice(1, 17));
+  const idx = new DataView(data).getUint32(17, false);
   const payload = data.slice(21);
   return { version, attachmentId: aId, chunkIndex: idx, payload };
 }

@@ -56,6 +56,7 @@ export default function RealtimeProvider() {
   const peerManagerRef = useRef<PeerManager | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const peerMessageHandlerRef = useRef<((userId: number, data: string) => void) | null>(null);
+  const peerMediaHandlerRef = useRef<((userId: number, data: ArrayBuffer) => void) | null>(null);
   const presenceRef = useRef<Record<number, PresenceState>>({});
   const channelRef = useRef<BroadcastChannel | null>(null);
   const isLeaderRef = useRef(false);
@@ -149,6 +150,18 @@ export default function RealtimeProvider() {
     peerMessageHandlerRef.current = fn;
   }, []);
 
+  const openPeerMedia = useCallback((userId: number): RTCDataChannel | null => {
+    if (!isLeaderRef.current) {
+      channelRef.current?.postMessage({ kind: "open_peer_media", userId });
+      return null;
+    }
+    return peerManagerRef.current?.openMediaChannel(userId) ?? null;
+  }, []);
+
+  const setPeerMediaHandler = useCallback((fn: ((userId: number, data: ArrayBuffer) => void) | null) => {
+    peerMediaHandlerRef.current = fn;
+  }, []);
+
   useEffect(() => {
     presenceRef.current = presence;
   }, [presence]);
@@ -174,7 +187,11 @@ export default function RealtimeProvider() {
         peerMessageHandlerRef.current?.(userId, data);
         channelRef.current?.postMessage({kind:"peer_data",userId,data});
       },
-      (userId) => presenceRef.current[userId] === "online"
+      (userId) => presenceRef.current[userId] === "online",
+      (userId, data) => {
+        peerMediaHandlerRef.current?.(userId, data);
+        channelRef.current?.postMessage({ kind: "peer_media", userId, data });
+      }
     );
     peerManagerRef.current = mgr;
 
@@ -193,7 +210,11 @@ export default function RealtimeProvider() {
             peerMessageHandlerRef.current?.(userId, data);
             channelRef.current?.postMessage({kind:"peer_data",userId,data});
           },
-          (userId) => presenceRef.current[userId] === "online"
+          (userId) => presenceRef.current[userId] === "online",
+          (userId, data) => {
+            peerMediaHandlerRef.current?.(userId, data);
+            channelRef.current?.postMessage({ kind: "peer_media", userId, data });
+          }
         );
       } catch {
         // peer manager works without ICE config
@@ -210,7 +231,7 @@ export default function RealtimeProvider() {
   useEffect(()=>{
     if(!session.user||typeof BroadcastChannel==="undefined")return;
     const channel=new BroadcastChannel(`private-direct-${session.user.id}`);channelRef.current=channel;
-    channel.onmessage=event=>{const message=event.data as Record<string,unknown>;if(message.kind==="peer_data"&&!isLeaderRef.current)peerMessageHandlerRef.current?.(Number(message.userId),String(message.data));if(!isLeaderRef.current&&message.kind==="mailbox")setMailboxRevision(current=>current+1);if(!isLeaderRef.current&&message.kind==="snapshot"){setConnectionState("connected");setMailboxRevision(current=>current+1)}if(isLeaderRef.current&&message.kind==="connect_peer")peerManagerRef.current?.connect(Number(message.userId));if(isLeaderRef.current&&message.kind==="peer_send")peerManagerRef.current?.sendMessage(Number(message.userId),String(message.data));if(isLeaderRef.current&&message.kind==="signal"){const ws=wsRef.current;if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:"signal",to_user_id:Number(message.toUserId),signal_type:String(message.signalType),payload:message.payload}))}};
+    channel.onmessage=event=>{const message=event.data as Record<string,unknown>;if(message.kind==="peer_data"&&!isLeaderRef.current)peerMessageHandlerRef.current?.(Number(message.userId),String(message.data));if(message.kind==="peer_media"&&!isLeaderRef.current&&message.data instanceof ArrayBuffer)peerMediaHandlerRef.current?.(Number(message.userId),message.data);if(!isLeaderRef.current&&message.kind==="mailbox")setMailboxRevision(current=>current+1);if(!isLeaderRef.current&&message.kind==="snapshot"){setConnectionState("connected");setMailboxRevision(current=>current+1)}if(isLeaderRef.current&&message.kind==="connect_peer")peerManagerRef.current?.connect(Number(message.userId));if(isLeaderRef.current&&message.kind==="open_peer_media")peerManagerRef.current?.openMediaChannel(Number(message.userId));if(isLeaderRef.current&&message.kind==="peer_send")peerManagerRef.current?.sendMessage(Number(message.userId),String(message.data));if(isLeaderRef.current&&message.kind==="signal"){const ws=wsRef.current;if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:"signal",to_user_id:Number(message.toUserId),signal_type:String(message.signalType),payload:message.payload}))}};
     return()=>{channel.close();channelRef.current=null};
   },[session.user,setConnectionState]);
 
@@ -410,6 +431,8 @@ export default function RealtimeProvider() {
       sendToPeer,
       onPeerMessage: peerMessageHandlerRef.current,
       setPeerMessageHandler,
+      openPeerMedia,
+      setPeerMediaHandler,
       retryPeer,
     }),
     [
@@ -428,6 +451,8 @@ export default function RealtimeProvider() {
       connectPeer,
       sendToPeer,
       setPeerMessageHandler,
+      openPeerMedia,
+      setPeerMediaHandler,
       retryPeer,
       requests,
       requestsError,

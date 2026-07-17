@@ -16,35 +16,26 @@ import {
 
 export function useMedia() {
   const [attachments, setAttachments] = useState<Record<string, AttachmentInfo[]>>({});
-  const receivingChunks = useRef<Record<string, { chunks: ArrayBuffer[]; size: number }>>({});
-  const mediaChannelsRef = useRef<Record<number, RTCDataChannel>>({});
+  const receivingChunks = useRef<Record<string, { chunks: ArrayBuffer[]; info: AttachmentInfo }>>({});
 
-  const setupMediaChannel = useCallback((contactId: number, channel: RTCDataChannel) => {
-    channel.binaryType = "arraybuffer";
-    mediaChannelsRef.current[contactId] = channel;
-
-    channel.onmessage = (event) => {
-      const frame = readBinFrame(event.data as ArrayBuffer);
-      if (!frame) return;
-
-      const key = `${contactId}:${frame.attachmentId}`;
-      const entry = receivingChunks.current[key];
-      if (entry) {
-        entry.chunks.push(frame.payload);
-      }
-    };
+  const receiveFrame = useCallback((contactId: number, data: ArrayBuffer) => {
+    const frame = readBinFrame(data);
+    if (!frame) return;
+    const entry = receivingChunks.current[`${contactId}:${frame.attachmentId}`];
+    if (entry) entry.chunks.push(frame.payload);
   }, []);
 
   const sendAttachment = useCallback(
     async (
       _contactId: number,
-      chatChannel: RTCDataChannel,
+      sendControl: (data: string) => boolean,
       mediaChannel: RTCDataChannel,
       messageId: string,
       file: File,
       index: number,
+      attachmentId?: string,
     ): Promise<AttachmentInfo> => {
-      const id = crypto.randomUUID();
+      const id = attachmentId ?? crypto.randomUUID();
       const info: AttachmentInfo = {
         id,
         index,
@@ -62,6 +53,8 @@ export function useMedia() {
         return info;
       }
 
+      info.blob = file;
+      info.objectUrl = imageUrl(file);
       info.state = "ready";
       setAttachments((prev) => ({
         ...prev,
@@ -110,10 +103,11 @@ export function useMedia() {
         digest,
       });
 
-      chatChannel.send(completeMsg);
+      sendControl(completeMsg);
 
       info.state = "complete";
       info.progress = 100;
+      setAttachments((prev) => ({ ...prev, [messageId]: [...(prev[messageId] ?? [])] }));
       return info;
     },
     [],
@@ -138,14 +132,14 @@ export function useMedia() {
       sha256Incremental(entry.chunks).then((computed) => {
         if (computed !== digest) return;
 
-        const blob = new Blob(entry.chunks);
+        const blob = new Blob(entry.chunks, { type: entry.info.mime });
         const url = imageUrl(blob);
 
         const info: AttachmentInfo = {
           id: attachmentId,
-          index: 0,
-          filename: "",
-          mime: blob.type,
+          index: entry.info.index,
+          filename: entry.info.filename,
+          mime: entry.info.mime,
           size: expectedSize,
           blob,
           objectUrl: url,
@@ -170,8 +164,10 @@ export function useMedia() {
     (contactId: number, manifest: MediaManifest) => {
       for (const att of manifest.attachments) {
         const key = `${contactId}:${att.id}`;
-        receivingChunks.current[key] = { chunks: [], size: att.size };
+        const info: AttachmentInfo = { ...att, state: "transferring", progress: 0 };
+        receivingChunks.current[key] = { chunks: [], info };
       }
+      setAttachments((prev) => ({ ...prev, [manifest.messageId]: manifest.attachments.map((att) => ({ ...att, state: "transferring", progress: 0 })) }));
     },
     [],
   );
@@ -201,7 +197,7 @@ export function useMedia() {
 
   const initReceive = useCallback((contactId: number, attachmentId: string, size: number) => {
     const key = `${contactId}:${attachmentId}`;
-    receivingChunks.current[key] = { chunks: [], size };
+    receivingChunks.current[key] = { chunks: [], info: { id: attachmentId, index: 0, filename: "", mime: "", size, state: "transferring", progress: 0 } };
   }, []);
 
   return {
@@ -209,7 +205,7 @@ export function useMedia() {
     sendAttachment,
     receiveManifest,
     receiveAttachmentComplete,
-    setupMediaChannel,
+    receiveFrame,
     clearAttachments,
     initReceive,
   };

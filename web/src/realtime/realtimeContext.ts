@@ -25,6 +25,8 @@ type RealtimeContextValue = {
   sendToPeer: (userId: number, data: string) => boolean;
   onPeerMessage: ((userId: number, data: string) => void) | null;
   setPeerMessageHandler: (fn: ((userId: number, data: string) => void) | null) => void;
+  openPeerMedia: (userId: number) => RTCDataChannel | null;
+  setPeerMediaHandler: (fn: ((userId: number, data: ArrayBuffer) => void) | null) => void;
   retryPeer: (userId: number) => void;
 };
 
