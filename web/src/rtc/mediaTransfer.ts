@@ -1,6 +1,7 @@
 const FRAME_SIZE = 16 * 1024;
 const BUF_HIGH = 1_048_576;
 const BUF_LOW = 262_144;
+const MAX_MEMORY_BUDGET = 256 * 1024 * 1024;
 
 export type AttachmentState = "pending" | "ready" | "transferring" | "complete" | "failed";
 
@@ -122,6 +123,7 @@ export {
   FRAME_SIZE,
   BUF_HIGH,
   BUF_LOW,
+  MAX_MEMORY_BUDGET,
   binFrame,
   readBinFrame,
   sha256,

@@ -18,6 +18,7 @@ import { loadDraft, saveDraft } from "../e2ee/draftStore";
 import { validateEventPage } from "../e2ee/eventChain";
 import { sanitizeFilename, type AttachmentInfo, type MediaManifest } from "../rtc/mediaTransfer";
 import { useMedia } from "../rtc/useMedia";
+import Gallery from "../components/Gallery";
 
 type DeliveryState = "queued" | "sending" | "sent" | "delivered" | "not-delivered";
 
@@ -176,8 +177,25 @@ export default function ChatPage() {
   const [composerHeight, setComposerHeight] = useState<string>("44px");
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [sendingMedia, setSendingMedia] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [galleryMsgId, setGalleryMsgId] = useState<string | null>(null);
+  const [galleryStartIndex, setGalleryStartIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { attachments, sendAttachment, receiveManifest, receiveAttachmentComplete, receiveFrame, clearAttachments } = useMedia();
+  const composerAreaRef = useRef<HTMLDivElement>(null);
+  const {
+    attachments,
+    sendAttachment,
+    receiveManifest,
+    receiveAttachmentComplete,
+    receiveFrame,
+    clearAttachments,
+    clearMediaPreservingText,
+    cancelAttachments,
+    clearCancelled,
+    receiveCancelManifest,
+    getAggregateProgress,
+    cleanupAll,
+  } = useMedia();
 
   const transcriptsRef = useRef<Record<string, ChatMessage[]>>({});
   const unreadsRef = useRef<Record<string, number>>({});
@@ -294,6 +312,17 @@ export default function ChatPage() {
           receiveAttachmentComplete(fromUserId, media);
           return;
         }
+        if (media.type === "cancel_manifest" && typeof media.message_id === "string") {
+          receiveCancelManifest(fromUserId, media.message_id as string);
+          rerender();
+          return;
+        }
+        if (media.type === "retry_request" && typeof media.message_id === "string") {
+          // Peer wants to retry; we keep existing completed attachments
+          clearAttachments(media.message_id as string);
+          rerender();
+          return;
+        }
       } catch {
         return;
       }
@@ -369,8 +398,11 @@ export default function ChatPage() {
 
   useEffect(() => {
     setPeerMediaHandler(receiveFrame);
-    return () => setPeerMediaHandler(null);
-  }, [receiveFrame, setPeerMediaHandler]);
+    return () => {
+      setPeerMediaHandler(null);
+      cleanupAll();
+    };
+  }, [receiveFrame, setPeerMediaHandler, cleanupAll]);
 
   // Clear unread when opening a conversation
   useEffect(() => {
@@ -537,6 +569,10 @@ export default function ChatPage() {
 
   const deleteMessage=async(messageID:string,scope:"self"|"both")=>{if(!username||!me)return;const warning=scope==="both"?"Delete for both? Revoked devices and operator backups may still retain ciphertext.":"Delete from all your authorized devices?";if(!confirm(warning))return;try{const createdAt=new Date().toISOString();const signed=await (await matrixSession(me.username)).signTombstone(messageID,scope,createdAt);await api.deleteMessage(messageID,{scope,...signed});transcriptsRef.current[username]=(transcriptsRef.current[username]??[]).filter(message=>message.id!==messageID);rerender()}catch{/* Keep message if signed deletion fails. */}};
 
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
+  const handleDragLeave = (e: React.DragEvent) => { if (e.currentTarget.contains(e.relatedTarget as Node)) return; setDragOver(false); };
+  const handleDrop = (e: React.DragEvent) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length > 0) processFiles(e.dataTransfer.files); };
+
   const handleAutoGrow = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";
     const h = Math.min(el.scrollHeight, 160);
@@ -554,6 +590,110 @@ export default function ChatPage() {
     }
     if (attachment.state === "failed") return <span className={styles.attachmentFailed}>{attachment.error ?? "Transfer failed"}</span>;
     return <div className={styles.attachmentTransferring}><span className={styles.attachmentFilename}>{attachment.filename}</span><div className={styles.progressBar}><div className={styles.progressFill} style={{ width: `${attachment.progress}%` }} /></div><span className={styles.attachmentProgress}>{attachment.progress}%</span></div>;
+  };
+
+  const cancelMedia = (msgId: string) => {
+    cancelAttachments(msgId);
+    if (contact) sendToPeer(contact.id, JSON.stringify({ type: "cancel_manifest", message_id: msgId }));
+  };
+
+  const renderAttachmentGrid = (msgId: string, msg: ChatMessage) => {
+    const list = attachments[msgId];
+    if (!list || list.length === 0) return null;
+    const visible = list.slice(0, 4);
+    const extra = list.length - 4;
+    const agg = getAggregateProgress(msgId);
+    const hasTransferring = list.some(a => a.state === "transferring");
+    const hasFailed = list.some(a => a.state === "failed");
+    const gridClass = extra > 0 ? styles.attachmentGridFour : styles.attachmentGrid;
+    return (
+      <>
+        <div className={gridClass}>
+          {visible.map((attachment, idx) => (
+            <div key={attachment.id} className={styles.attachmentTile}>
+              {renderAttachment(attachment)}
+              {attachment.state === "complete" && attachment.objectUrl && (
+                <div
+                  className={styles.attachmentTileOverlay}
+                  onClick={() => { setGalleryMsgId(msgId); setGalleryStartIndex(idx); }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={"View " + attachment.filename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setGalleryMsgId(msgId);
+                      setGalleryStartIndex(idx);
+                    }
+                  }}
+                />
+              )}
+              {idx === 3 && extra > 0 && (
+                <div
+                  className={styles.attachmentExtraOverlay}
+                  aria-label={extra + " more attachments"}
+                  onClick={() => { setGalleryMsgId(msgId); setGalleryStartIndex(0); }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setGalleryMsgId(msgId);
+                      setGalleryStartIndex(0);
+                    }
+                  }}
+                >
+                  {"+" + extra}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        {hasTransferring && (
+          <div className={styles.aggregateProgress} role="progressbar" aria-valuenow={agg} aria-valuemin={0} aria-valuemax={100}>
+            <div className={styles.aggregateProgressFill} style={{ width: agg + "%" }} />
+          </div>
+        )}
+        {hasTransferring && msg.direction === "sent" && (
+          <button type="button" className={styles.cancelMediaBtn} onClick={() => cancelMedia(msgId)} aria-label="Cancel attachment transfer">
+            Cancel
+          </button>
+        )}
+        {hasFailed && msg.direction === "sent" && (
+          <button type="button" className={styles.retryMediaBtn} onClick={() => void retryMedia(msgId)} aria-label="Retry failed attachments">
+            Retry attachments
+          </button>
+        )}
+      </>
+    );
+  };
+
+  const retryMedia = async (msgId: string) => {
+    if (!contact || !username) return;
+    const channel = openPeerMedia(contact.id);
+    if (!channel) return;
+    try {
+      await waitForOpen(channel);
+      const failed = attachments[msgId]?.filter((a) => a.state === "failed") ?? [];
+      clearCancelled(msgId);
+      clearAttachments(msgId);
+      for (const att of failed) {
+        if (att.blob) {
+          const file = new File([att.blob], att.filename, { type: att.mime });
+          await sendAttachment(
+            contact.id,
+            (data) => sendToPeer(contact.id, data),
+            channel,
+            msgId,
+            file,
+            att.index,
+            att.id,
+          );
+        }
+      }
+    } catch {
+      // Retry unavailable
+    }
   };
 
   return (
@@ -699,6 +839,7 @@ export default function ChatPage() {
                 {username ? `@${username}` : "No conversation selected"}
               </span>
               {username && <button ref={identityTriggerRef} type="button" className={styles.identityBtn} onClick={()=>setIdentityOpen(true)} aria-label="Verify contact identity"><ShieldCheck size={17}/>{identityChanged?"Identity changed":"Verify"}</button>}
+              {username && Object.keys(attachments).length > 0 && <button type="button" className={styles.clearMediaBtn} onClick={clearMediaPreservingText} aria-label="Clear media">Clear media</button>}
               {username && (
                 <span className={styles.channelState} aria-live="polite">
                   {channelLabels[peerState]}
@@ -726,7 +867,7 @@ export default function ChatPage() {
                     >
                       <div className={styles.messageBubble}>
                         {msg.content && <span className={styles.messageContent}>{msg.content}</span>}
-                        {(attachments[msg.id] ?? []).length > 0 && <div className={styles.attachmentGrid}>{attachments[msg.id].map((attachment) => <div key={attachment.id} className={styles.attachmentTile}>{renderAttachment(attachment)}</div>)}</div>}
+                        {renderAttachmentGrid(msg.id, msg)}
                         <span className={styles.messageMeta}>
                           {msg.direction === "sent" && (
                             <span className={styles.delivery} data-delivery={msg.delivery}>
@@ -764,7 +905,7 @@ export default function ChatPage() {
               )}
 
               {username && (
-                <div className={styles.composerArea}>
+                <div className={`${styles.composerArea} ${dragOver ? styles.dragOver : ""}`} ref={composerAreaRef} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
                   <input ref={fileInputRef} className={styles.fileInput} type="file" multiple accept={[...VALID_MEDIA_TYPES].join(",")} onChange={(event) => { if (event.target.files) processFiles(event.target.files); event.target.value = ""; }} />
                   {identityChanged && <div className={styles.identityWarning} role="alert">Contact identity changed. Verify safety number before sending.</div>}
                   {protocolMismatch && <div className={styles.identityWarning} role="alert">Contact uses an incompatible encryption protocol. They must update before messaging. Plaintext fallback is disabled.</div>}
@@ -841,6 +982,13 @@ export default function ChatPage() {
       )}
       {devicesOpen && <DevicesSheet onClose={()=>setDevicesOpen(false)} returnFocusRef={devicesTriggerRef} onRemoveCurrent={onLogout}/>} 
       {identityOpen && <Sheet title={`Verify @${username}`} onClose={()=>setIdentityOpen(false)} returnFocusRef={identityTriggerRef}><div className={securityStyles.body}><p>Compare this safety number through another trusted channel.</p><p className={securityStyles.number}>{fingerprint || "Identity unavailable"}</p>{identityChanged&&<button type="button" onClick={()=>{trustIdentity(username!,fingerprint);setIdentityChanged(false);setIdentityOpen(false)}}>I confirmed this new identity</button>}</div></Sheet>}
+      {galleryMsgId && attachments[galleryMsgId] && (
+        <Gallery
+          attachments={attachments[galleryMsgId].filter((a) => a.state === "complete")}
+          startIndex={galleryStartIndex}
+          onClose={() => setGalleryMsgId(null)}
+        />
+      )}
     </>
   );
 }

@@ -695,3 +695,112 @@
   outline: 2px dashed var(--amber);
   outline-offset: -2px;
 }
+
+/* ── 4-tile grid ── */
+.attachmentGridFour {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin-top: 0.35rem;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.attachmentGridFour .attachmentTile {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+}
+
+.attachmentGridFour .attachmentMedia {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  border-radius: 0;
+}
+
+.attachmentTileOverlay {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.attachmentExtraOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.attachmentExtraOverlay:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.attachmentTileOverlay:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── aggregate progress ── */
+.aggregateProgress {
+  height: 3px;
+  background-color: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 0.25rem 0;
+}
+
+.aggregateProgressFill {
+  height: 100%;
+  background-color: var(--amber);
+  transition: width 0.3s ease;
+}
+
+/* ── cancel/retry media buttons ── */
+.cancelMediaBtn,
+.retryMediaBtn {
+  margin-top: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.6875rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.cancelMediaBtn:hover {
+  border-color: var(--fault);
+  color: var(--fault);
+}
+
+.retryMediaBtn:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+/* ── clear media header button ── */
+.clearMediaBtn {
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+}
+
+.clearMediaBtn:hover {
+  color: var(--amber);
+}
